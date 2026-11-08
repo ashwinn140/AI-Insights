@@ -39,7 +39,9 @@ def initialize():
             approved INTEGER NOT NULL DEFAULT 1, updated_by INTEGER,
             updated_at INTEGER NOT NULL
         )""")
-        # One-time compatibility migration: existing classifications are active immediately.\n        db.execute("UPDATE classifications SET approved=1 WHERE approved=0")\n        db.execute("""CREATE TABLE IF NOT EXISTS research_entities (
+        # One-time compatibility migration: existing classifications are active immediately.
+        db.execute("UPDATE classifications SET approved=1 WHERE approved=0")
+        db.execute("""CREATE TABLE IF NOT EXISTS research_entities (
             entity_key TEXT PRIMARY KEY, original_name TEXT NOT NULL,
             normalized_name TEXT, canonical_entity TEXT, parent_group TEXT,
             alias_group TEXT, country TEXT, industry TEXT, sub_industry TEXT,
