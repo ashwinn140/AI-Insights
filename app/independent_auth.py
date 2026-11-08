@@ -174,7 +174,7 @@ def list_users():
 def add_user(actor, email, name, password, role, companies, lobs):
     import re
     email = email.strip().lower()
-    if not re.fullmatch(r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+", email) or len(email)>254:
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) or len(email)>254:
         raise ValueError("Invalid email")
     if not 14<=len(password)<=256:
         raise ValueError("Password must contain 14 to 256 characters")
