@@ -161,6 +161,10 @@ def require_admin(user=Depends(current_user)):
         raise HTTPException(403, "Administrator permission required")
     return user
 
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page(user=Depends(require_admin)):
+    return Path(__file__).parent.joinpath("app/admin.html").read_text()
+
 @app.get("/api/admin/users")
 def admin_users(user=Depends(require_admin)):
     return {"users":auth.list_users()}
