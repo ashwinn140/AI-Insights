@@ -265,7 +265,9 @@ def opportunities_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/discovery.html").read_text()
 
 @app.get("/api/companies")
-def companies_api(company: str | None=None,lob: str | None=None,q: str="",\n                  origin: str|None=None,destination: str|None=None,branch: str|None=None,\n                  start: str|None=None,end: str|None=None,user=Depends(current_user)):
+def companies_api(company: str | None=None,lob: str | None=None,q: str="",
+                  origin: str|None=None,destination: str|None=None,branch: str|None=None,
+                  start: str|None=None,end: str|None=None,user=Depends(current_user)):
     companies,lobs=allowed_scope(user,company,lob)
     if len(q)>100: raise HTTPException(400,"Search too long")
     engine=scoped_engine()
@@ -273,10 +275,13 @@ def companies_api(company: str | None=None,lob: str | None=None,q: str="",\n    
     finally: engine.dispose()
 
 @app.get("/api/opportunities")
-def opportunities_api(company: str | None=None,lob: str | None=None,\n                      origin: str|None=None,destination: str|None=None,branch: str|None=None,\n                      start: str|None=None,end: str|None=None,user=Depends(current_user)):
+def opportunities_api(company: str | None=None,lob: str | None=None,
+                      origin: str|None=None,destination: str|None=None,branch: str|None=None,
+                      start: str|None=None,end: str|None=None,user=Depends(current_user)):
     companies,lobs=allowed_scope(user,company,lob)
     engine=scoped_engine()
-    try: return {"results":opportunity_candidates(engine,companies=companies,lobs=lobs,\n                     filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end)),
+    try: return {"results":opportunity_candidates(engine,companies=companies,lobs=lobs,
+                     filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end)),
                  "disclaimer":"Activity-based candidates only. Not verified new prospects or industry classifications."}
     finally: engine.dispose()
 
