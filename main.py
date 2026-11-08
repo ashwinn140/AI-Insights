@@ -436,12 +436,13 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
        LEFT JOIN industry_map m ON LOWER(BTRIM({field}))=m.name
        WHERE {where} AND COALESCE(m.industry,'Unclassified')=:industry
     )"""
+    opposite_party=("CASE WHEN report_type IN (\'AE\',\'OE\') THEN consignee ELSE shipper END" if role=="primary" else ("consignee" if role=="shipper" else "shipper"))
     queries={
       "overview":"SELECT COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_keys,COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight,MIN(shipment_date) AS first_date,MAX(shipment_date) AS last_date FROM scoped",
       "departments":"SELECT company,report_type,COUNT(*) AS shipments,COUNT(DISTINCT key) AS distinct_keys,COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight FROM scoped GROUP BY 1,2 ORDER BY shipments DESC",
       "lanes":"SELECT COALESCE(NULLIF(BTRIM(origin),''),'Unknown') AS origin,COALESCE(NULLIF(BTRIM(destination),''),'Unknown') AS destination,COUNT(*) AS shipments FROM scoped GROUP BY 1,2 ORDER BY shipments DESC LIMIT 25",
       "branches":"SELECT COALESCE(NULLIF(BTRIM(branch),''),'Unknown') AS branch,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 15",
-      "counterparties":f"SELECT COALESCE(NULLIF(BTRIM({('CASE WHEN report_type IN (\'AE\',\'OE\') THEN consignee ELSE shipper END' if role=='primary' else ('consignee' if role=='shipper' else 'shipper'))}),''),'Unknown') AS name,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 25",
+      "counterparties":f"SELECT COALESCE(NULLIF(BTRIM({opposite_party}),''),'Unknown') AS name,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 25",
       "months":"SELECT TO_CHAR(DATE_TRUNC('month',shipment_date),'YYYY-MM') AS month,COUNT(*) AS shipments FROM scoped WHERE shipment_date IS NOT NULL GROUP BY 1 ORDER BY 1"
     }
     engine=scoped_engine()
