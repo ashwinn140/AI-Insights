@@ -69,7 +69,9 @@ async def lifespan(app: FastAPI):
     global _database_verified
     _database_verified = verify_restricted_source()
     auth.initialize()
-    if auth.provision_initial_admin():
+    bootstrap_status = auth.bootstrap_status()
+    logger.info('Independent auth bootstrap status: %s', bootstrap_status)
+    if bootstrap_status == 'ready' and auth.provision_initial_admin():
         logger.info('Independent AI Insights admin provisioned from private environment configuration')
     yield
 
