@@ -482,6 +482,27 @@ def classification_pending_template(user=Depends(current_user)):
         with auth.connection() as db:
             classified={r[0].casefold() for r in db.execute("SELECT company_name FROM classifications")}
         rows=[{"company_name":name} for name in names if name.casefold() not in classified]
+    # Enrich pending countries using the authorized organization lookup.
+    companies,_=allowed_scope(user,None,None)
+    try:
+        engine=scoped_engine()
+        try:
+            with engine.connect() as conn:
+                matches=conn.execute(text("SELECT name,country FROM ai_insights_source.organization_country WHERE company=ANY(:companies)"),{"companies":companies}).all()
+            known={}
+            ambiguous=set()
+            for name,country in matches:
+                key=name.strip().casefold()
+                if key in known and known[key].casefold()!=country.casefold(): ambiguous.add(key)
+                known[key]=country
+            for row in rows:
+                key=row["company_name"].strip().casefold()
+                if not row.get("country") and key not in ambiguous:
+                    row["country"]=known.get(key,"")
+        finally:
+            engine.dispose()
+    except Exception:
+        pass
     output=workbook_bytes([("Pending classification",
         ["company_name","industry","confidence","source","country"],
         [[r["company_name"],"","","",r.get("country") or ""] for r in rows]),
