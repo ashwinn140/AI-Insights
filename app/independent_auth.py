@@ -173,7 +173,7 @@ def add_user(actor, email, name, password, role, companies, lobs):
         raise ValueError("Invalid email")
     if not 14<=len(password)<=256:
         raise ValueError("Password must contain 14 to 256 characters")
-    if role not in ("admin","viewer"):
+    if role not in ("admin","viewer","classification_admin"):
         raise ValueError("Invalid role")
     if not companies or not lobs or not set(companies)<=COMPANIES or not set(lobs)<=LOBS:
         raise ValueError("Invalid company/department permissions")
@@ -195,7 +195,7 @@ def edit_user(actor, uid, active=None, companies=None, lobs=None, role=None):
             raise ValueError("User not found")
         if uid==actor and (active is False or role=="viewer"):
             raise ValueError("Cannot revoke your own administrator access")
-        if role is not None and role not in ("admin","viewer"):
+        if role is not None and role not in ("admin","viewer","classification_admin"):
             raise ValueError("Invalid role")
         if companies is not None and (not companies or not set(companies)<=COMPANIES):
             raise ValueError("Invalid companies")
@@ -290,3 +290,33 @@ def classification_import(actor,rows):
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_excel_import_"+str(len(normalized)),actor,int(time.time())))
     return len(normalized)
+
+def pending_classification_names(limit=10000):
+    """Unclassified research names only; does not invent industries."""
+    with connection() as db:
+        return [dict(row) for row in db.execute("""
+            SELECT r.original_name AS company_name,
+                   COALESCE(r.verification_status,'Unknown') AS research_status,
+                   COALESCE(r.appearances,0) AS appearances
+            FROM research_entities r
+            WHERE NOT EXISTS (
+                SELECT 1 FROM classifications c
+                WHERE c.company_name = r.original_name COLLATE NOCASE
+            )
+            ORDER BY COALESCE(r.appearances,0) DESC, r.original_name
+            LIMIT ?
+        """,(min(max(int(limit),1),10000),))]
+
+def classification_industry_status():
+    with connection() as db:
+        industries=[dict(row) for row in db.execute("""
+            SELECT industry, COUNT(*) AS total,
+                   SUM(CASE WHEN approved=1 THEN 1 ELSE 0 END) AS approved,
+                   SUM(CASE WHEN approved=0 THEN 1 ELSE 0 END) AS pending
+            FROM classifications GROUP BY industry ORDER BY total DESC,industry LIMIT 100
+        """)]
+        total=db.execute("SELECT COUNT(*) FROM classifications").fetchone()[0]
+        pending=db.execute("""SELECT COUNT(*) FROM research_entities r
+            WHERE NOT EXISTS (SELECT 1 FROM classifications c
+            WHERE c.company_name=r.original_name COLLATE NOCASE)""").fetchone()[0]
+    return {"industries":industries,"classified":total,"research_pending":pending}
