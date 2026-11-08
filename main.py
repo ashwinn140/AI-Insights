@@ -250,15 +250,38 @@ def classification_xlsx_template(user=Depends(current_user)):
         headers={"Content-Disposition":"attachment; filename=ai-insights-classification-template.xlsx",
                  "Cache-Control":"no-store"})
 
+def _saved_classification_export_rows():
+    # Full saved master, not the 500-row search preview. Export only filled industries.
+    with auth.connection() as db:
+        return [dict(r) for r in db.execute("""SELECT company_name,industry,confidence,source,country
+            FROM classifications WHERE TRIM(COALESCE(industry,'')) <> ''
+            ORDER BY company_name COLLATE NOCASE""")]
+
 @app.get("/api/admin/classifications/export")
 def classification_xlsx_export(user=Depends(current_user)):
-    rows=auth.classification_list(limit=500)
+    rows=_saved_classification_export_rows()
     output=workbook_bytes([("Classifications",
         ["company_name","industry","confidence","source","country"],
         [[r["company_name"],r["industry"],r["confidence"],r["source"],r.get("country","")] for r in rows])])
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition":"attachment; filename=ai-insights-classifications.xlsx",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-classified-organizations.xlsx",
+                 "Cache-Control":"no-store"})
+
+@app.get("/api/admin/classifications/unique-verticals")
+def classification_unique_verticals(user=Depends(current_user)):
+    # Case-insensitive unique vertical names, with distinct organization counts.
+    with auth.connection() as db:
+        rows=db.execute("""SELECT MIN(TRIM(industry)) AS industry,
+            COUNT(DISTINCT LOWER(TRIM(company_name))) AS organizations
+            FROM classifications WHERE TRIM(COALESCE(industry,'')) <> ''
+            GROUP BY LOWER(TRIM(industry)) ORDER BY industry COLLATE NOCASE""").fetchall()
+    output=workbook_bytes([("Unique industry verticals",
+        ["industry_vertical","classified_organizations"],
+        [[r["industry"],r["organizations"]] for r in rows])])
+    return StreamingResponse(BytesIO(output),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-unique-industry-verticals.xlsx",
                  "Cache-Control":"no-store"})
 
 @app.post("/api/admin/classifications/import")
