@@ -287,6 +287,7 @@ def classification_import(actor,rows):
                 (company_name,industry,country,confidence,source,approved,updated_by,updated_at)
                 VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
+                country=CASE WHEN excluded.country <> '' THEN excluded.country ELSE classifications.country END,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
                 updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
                 (name,industry,country,confidence,source,approved,actor,int(time.time())))
