@@ -88,3 +88,11 @@
 #shipment-trend table th{font-size:12px}
 #shipment-trend table td:nth-child(n+2){font-variant-numeric:tabular-nums}
 @media(max-width:760px){.ai-contribution-list{grid-template-columns:1fr}.ai-monthly-row{grid-template-columns:64px minmax(0,1fr) 60px;gap:7px}}
+
+.ai-insight-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 24px}
+.ai-insight-kpi{display:flex;flex-direction:column;gap:8px;padding:16px;background:#111f33;border:1px solid #344b68;border-radius:11px}
+.ai-insight-kpi strong{font-size:24px;color:#f1f6ff;letter-spacing:-.6px;font-variant-numeric:tabular-nums}
+.ai-insight-kpi small{font-size:11px;color:#9db4d2;line-height:1.4}
+.ai-insight-label{font-size:12px;color:#b4c9e3}
+@media(max-width:950px){.ai-insight-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:490px){.ai-insight-kpis{grid-template-columns:1fr}}
