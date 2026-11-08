@@ -30,6 +30,9 @@ def initialize():
             token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL,
             expires_at INTEGER NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id)
         )""")
+        columns = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
+        if "role" not in columns:
+            db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'")
         db.execute("""CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, event TEXT NOT NULL, user_id INTEGER,
             created_at INTEGER NOT NULL
@@ -75,6 +78,7 @@ def provision_initial_admin():
             VALUES (?,?,?,?,?)""",
             (email, "AI Insights Administrator", password_hash(password),
              "NG,NCS", "AE,AI,OE,OI"))
+        db.execute("UPDATE users SET role='admin' WHERE email=?", (email,))
         db.execute("INSERT INTO audit(event,created_at) VALUES (?,?)",
                    ("bootstrap_admin", int(time.time())))
     return True
@@ -116,10 +120,93 @@ def session_user(token):
         if not companies or not lobs:
             return None
         return {"id":row["id"],"email":row["email"],"name":row["name"],
-                "companies":sorted(companies),"lobs":sorted(lobs)}
+                "companies":sorted(companies),"lobs":sorted(lobs), "role":row["role"]}
 
 def logout(token):
     if token:
         with connection() as db:
             db.execute("DELETE FROM sessions WHERE token_hash=?",
                        (hashlib.sha256(token.encode()).hexdigest(),))
+
+def ensure_bootstrap_admin_role():
+    """One-time migration of original sole bootstrap user; no privilege escalation on later users."""
+    email = os.getenv("AI_BOOTSTRAP_EMAIL", "").strip().lower()
+    if not email:
+        return
+    with connection() as db:
+        rows = db.execute("SELECT id,email,role FROM users LIMIT 2").fetchall()
+        if len(rows)==1 and rows[0]["email"]==email and rows[0]["role"]=="viewer":
+            db.execute("UPDATE users SET role='admin' WHERE id=?", (rows[0]["id"],))
+
+def list_users():
+    with connection() as db:
+        return [dict(id=r["id"],email=r["email"],name=r["name"],role=r["role"],
+                     companies=r["companies"].split(","),lobs=r["lobs"].split(","),
+                     active=bool(r["active"])) for r in db.execute(
+            "SELECT id,email,name,role,companies,lobs,active FROM users ORDER BY id")]
+
+def add_user(actor, email, name, password, role, companies, lobs):
+    import re
+    email = email.strip().lower()
+    if not re.fullmatch(r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+", email) or len(email)>254:
+        raise ValueError("Invalid email")
+    if not 14<=len(password)<=256:
+        raise ValueError("Password must contain 14 to 256 characters")
+    if role not in ("admin","viewer"):
+        raise ValueError("Invalid role")
+    if not companies or not lobs or not set(companies)<=COMPANIES or not set(lobs)<=LOBS:
+        raise ValueError("Invalid company/department permissions")
+    with connection() as db:
+        try:
+            cursor=db.execute("""INSERT INTO users(email,name,password_hash,role,companies,lobs)
+                VALUES (?,?,?,?,?,?)""",(email,name[:100],password_hash(password),role,
+                ",".join(sorted(set(companies))),",".join(sorted(set(lobs)))))
+        except sqlite3.IntegrityError:
+            raise ValueError("Email already exists")
+        db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
+                   ("user_created_by_"+str(actor),cursor.lastrowid,int(time.time())))
+        return cursor.lastrowid
+
+def edit_user(actor, uid, active=None, companies=None, lobs=None, role=None):
+    with connection() as db:
+        user=db.execute("SELECT * FROM users WHERE id=?",(uid,)).fetchone()
+        if not user:
+            raise ValueError("User not found")
+        if uid==actor and (active is False or role=="viewer"):
+            raise ValueError("Cannot revoke your own administrator access")
+        if role is not None and role not in ("admin","viewer"):
+            raise ValueError("Invalid role")
+        if companies is not None and (not companies or not set(companies)<=COMPANIES):
+            raise ValueError("Invalid companies")
+        if lobs is not None and (not lobs or not set(lobs)<=LOBS):
+            raise ValueError("Invalid departments")
+        newrole=role if role is not None else user["role"]
+        newactive=int(active) if active is not None else user["active"]
+        if user["role"]=="admin" and (newrole!="admin" or not newactive):
+            count=db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND active=1").fetchone()[0]
+            if count<=1:
+                raise ValueError("Cannot disable the last administrator")
+        db.execute("""UPDATE users SET role=?,active=?,companies=?,lobs=? WHERE id=?""",
+                   (newrole,newactive,
+                    ",".join(sorted(set(companies))) if companies is not None else user["companies"],
+                    ",".join(sorted(set(lobs))) if lobs is not None else user["lobs"],uid))
+        db.execute("DELETE FROM sessions WHERE user_id=?",(uid,))
+        db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
+                   ("user_updated_by_"+str(actor),uid,int(time.time())))
+
+def reset_password(actor, uid, password):
+    if not 14<=len(password)<=256:
+        raise ValueError("Password must contain 14 to 256 characters")
+    with connection() as db:
+        if not db.execute("SELECT 1 FROM users WHERE id=?",(uid,)).fetchone():
+            raise ValueError("User not found")
+        db.execute("UPDATE users SET password_hash=?,failed=0,locked_until=0 WHERE id=?",
+                   (password_hash(password),uid))
+        db.execute("DELETE FROM sessions WHERE user_id=?",(uid,))
+        db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
+                   ("password_reset_by_"+str(actor),uid,int(time.time())))
+
+def audit_events(limit=100):
+    with connection() as db:
+        return [dict(r) for r in db.execute(
+            "SELECT event,user_id,created_at FROM audit ORDER BY id DESC LIMIT ?",(min(limit,200),))]
