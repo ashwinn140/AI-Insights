@@ -187,8 +187,8 @@ def allowed_scope(user,company,lob):
     return parse(company,user["companies"]),parse(lob,user["lobs"])
 
 def require_classification_admin(user=Depends(current_user)):
-    if user.get("role") not in ("admin","classification_admin"):
-        raise HTTPException(403,"Classification administrator permission required")
+    # All authenticated users may contribute industry classifications by product policy.
+    # System administration remains restricted to administrators.
     return user
 
 def require_admin(user=Depends(current_user)):
