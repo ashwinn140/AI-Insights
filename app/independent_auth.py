@@ -33,7 +33,13 @@ def initialize():
         columns = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
         if "role" not in columns:
             db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'")
-        db.execute("""CREATE TABLE IF NOT EXISTS classifications (\n            id INTEGER PRIMARY KEY, company_name TEXT NOT NULL UNIQUE COLLATE NOCASE,\n            industry TEXT NOT NULL, confidence TEXT NOT NULL, source TEXT NOT NULL,\n            approved INTEGER NOT NULL DEFAULT 0, updated_by INTEGER, updated_at INTEGER NOT NULL\n        )""")\n        db.execute("""CREATE TABLE IF NOT EXISTS audit (
+        db.execute("""CREATE TABLE IF NOT EXISTS classifications (
+            id INTEGER PRIMARY KEY, company_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            industry TEXT NOT NULL, confidence TEXT NOT NULL, source TEXT NOT NULL,
+            approved INTEGER NOT NULL DEFAULT 0, updated_by INTEGER,
+            updated_at INTEGER NOT NULL
+        )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, event TEXT NOT NULL, user_id INTEGER,
             created_at INTEGER NOT NULL
         )""")
