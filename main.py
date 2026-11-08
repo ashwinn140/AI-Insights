@@ -389,7 +389,8 @@ def classification_pending_template(user=Depends(current_user)):
                 names=[row[0] for row in conn.execute(statement,{"companies":companies,"lobs":lobs})]
         finally:
             engine.dispose()
-        with auth.connection() as db:\n            classified={r[0].casefold() for r in db.execute("SELECT company_name FROM classifications")}
+        with auth.connection() as db:
+            classified={r[0].casefold() for r in db.execute("SELECT company_name FROM classifications")}
         rows=[{"company_name":name} for name in names if name.casefold() not in classified]
     output=workbook_bytes([("Pending classification",
         ["company_name","industry","confidence","source","approved"],
