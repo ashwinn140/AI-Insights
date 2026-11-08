@@ -186,6 +186,11 @@ def allowed_scope(user,company,lob):
         return values
     return parse(company,user["companies"]),parse(lob,user["lobs"])
 
+def require_classification_admin(user=Depends(current_user)):
+    if user.get("role") not in ("admin","classification_admin"):
+        raise HTTPException(403,"Classification administrator permission required")
+    return user
+
 def require_admin(user=Depends(current_user)):
     if user.get("role") != "admin":
         raise HTTPException(403, "Administrator permission required")
@@ -257,7 +262,7 @@ def classification_xlsx_export(user=Depends(current_user)):
                  "Cache-Control":"no-store"})
 
 @app.post("/api/admin/classifications/import")
-async def classification_xlsx_import(request:Request,file:UploadFile=File(...),user=Depends(current_user)):
+async def classification_xlsx_import(request:Request,file:UploadFile=File(...),user=Depends(require_classification_admin)):
     same_origin(request)
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(400,"XLSX file required")
@@ -518,7 +523,7 @@ def classifications_api(q: str="",user=Depends(current_user)):
     return {"results":auth.classification_list(q)}
 
 @app.post("/api/admin/classifications")
-async def classification_upsert(request: Request,user=Depends(current_user)):
+async def classification_upsert(request: Request,user=Depends(require_classification_admin)):
     same_origin(request)
     payload=await request.json()
     try:
