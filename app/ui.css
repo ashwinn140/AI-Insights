@@ -29,3 +29,24 @@
 .ai-leadership-sections table{display:table;width:100%}
 @media(max-width:900px){.ai-heading{display:block}.ai-primary-link{margin-top:14px}.ai-leadership-sections #industry-bars>div{grid-template-columns:minmax(90px,150px) 1fr 65px!important;gap:6px!important;font-size:12px}}
 @media(max-width:620px){.ai-leadership-sections #industry-bars>div{grid-template-columns:1fr 65px!important}.ai-leadership-sections #industry-bars>div>span:first-child{grid-column:1/-1}.ai-leadership-sections .panel{padding:16px!important}}
+
+/* Discovery: leadership-friendly filter and result separation */
+.ai-discovery-filters{display:flex;flex-wrap:wrap;gap:14px 18px;align-items:end}
+.ai-discovery-filters>h2{width:100%;margin-bottom:0}
+.ai-discovery-filters>label,.ai-discovery-filters>p:not(#error){margin:0;min-width:0}
+.ai-discovery-filters>label{flex:1 1 180px;display:grid;gap:7px}
+.ai-discovery-filters>p:has(label){display:flex;flex:1 1 100%;flex-wrap:wrap;gap:14px}
+.ai-discovery-filters>p:has(label)>label{flex:1 1 180px;display:grid;gap:7px}
+.ai-discovery-filters #searchwrap{flex:1 1 100%;display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.ai-discovery-filters #searchwrap label{flex:1 1 100%}
+.ai-discovery-filters #searchwrap input{flex:1 1 300px}
+.ai-discovery-filters #error{width:100%;margin:0}
+.ai-discovery-filters>button{margin:0!important;min-width:130px}
+.ai-discovery-results{overflow-x:auto}
+.ai-discovery-results #note{font-size:12px;margin-top:18px}
+.ai-discovery-results table{min-width:550px}
+.ai-discovery-results th{font-size:12px;text-transform:uppercase;letter-spacing:.045em}
+.ai-discovery-results tbody tr:hover{background:#1c2c43}
+.ai-discovery-results td:nth-child(n+3){font-variant-numeric:tabular-nums}
+.ai-empty{padding:22px!important;color:#9fb2cd}
+@media(max-width:700px){.ai-discovery-filters>label,.ai-discovery-filters>p:has(label)>label{flex-basis:100%}.ai-discovery-filters>button{flex:1}}
