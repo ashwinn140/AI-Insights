@@ -265,7 +265,7 @@ async def classification_xlsx_import(request:Request,file:UploadFile=File(...),u
     payload=await file.read(2*1024*1024+1)
     try:
         rows=parse_classification_xlsx(payload)
-        if user.get("role")!="admin" and any(row[4] for row in rows):
+        if user.get("role") not in ("admin","classification_admin") and any(row[4] for row in rows):
             raise HTTPException(403,"Only administrators may approve classifications")
         count=auth.classification_import(user["id"],rows)
         return {"imported":count}
@@ -364,6 +364,21 @@ def shared_ui_js():
 def classification_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/classifications.html").read_text()
 
+@app.get("/api/classifications/industry-status")
+def classification_status_api(user=Depends(current_user)):
+    return auth.classification_industry_status()
+
+@app.get("/api/classifications/pending-template")
+def classification_pending_template(user=Depends(current_user)):
+    rows=auth.pending_classification_names()
+    output=workbook_bytes([("Pending classification",
+        ["company_name","industry","confidence","source","approved"],
+        [[r["company_name"],"","","","No"] for r in rows])])
+    return StreamingResponse(BytesIO(output),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
+                 "Cache-Control":"no-store"})
+
 @app.get("/api/classifications")
 def classifications_api(q: str="",user=Depends(current_user)):
     if len(q)>100: raise HTTPException(400,"Search too long")
@@ -374,7 +389,7 @@ async def classification_upsert(request: Request,user=Depends(current_user)):
     same_origin(request)
     payload=await request.json()
     try:
-        if payload.get("approved") and user.get("role")!="admin":
+        if payload.get("approved") and user.get("role") not in ("admin","classification_admin"):
             raise HTTPException(403,"Only administrators may approve classifications")
         auth.classification_save(user["id"],payload["company_name"],payload["industry"],
             payload["confidence"],payload["source"],payload.get("approved",False))
