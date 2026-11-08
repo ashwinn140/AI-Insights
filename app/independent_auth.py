@@ -33,7 +33,7 @@ def initialize():
         columns = {r["name"] for r in db.execute("PRAGMA table_info(users)")}
         if "role" not in columns:
             db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'")
-        db.execute("""CREATE TABLE IF NOT EXISTS audit (
+        db.execute("""CREATE TABLE IF NOT EXISTS classifications (\n            id INTEGER PRIMARY KEY, company_name TEXT NOT NULL UNIQUE COLLATE NOCASE,\n            industry TEXT NOT NULL, confidence TEXT NOT NULL, source TEXT NOT NULL,\n            approved INTEGER NOT NULL DEFAULT 0, updated_by INTEGER, updated_at INTEGER NOT NULL\n        )""")\n        db.execute("""CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, event TEXT NOT NULL, user_id INTEGER,
             created_at INTEGER NOT NULL
         )""")
@@ -210,3 +210,34 @@ def audit_events(limit=100):
     with connection() as db:
         return [dict(r) for r in db.execute(
             "SELECT event,user_id,created_at FROM audit ORDER BY id DESC LIMIT ?",(min(limit,200),))]
+
+def classification_list(term="",limit=200):
+    term=(term or "").strip()
+    with connection() as db:
+        return [dict(r) for r in db.execute("""SELECT id,company_name,industry,confidence,source,
+            approved,updated_at FROM classifications
+            WHERE company_name LIKE ? ORDER BY company_name LIMIT ?""",
+            ("%"+term+"%",min(limit,500)))]
+
+def classification_save(actor,company_name,industry,confidence,source,approved):
+    company_name=company_name.strip()
+    industry=industry.strip()
+    source=source.strip()
+    if not 2<=len(company_name)<=200 or not 2<=len(industry)<=100 or not 3<=len(source)<=500:
+        raise ValueError("Company, industry and evidence source are required")
+    if confidence not in ("low","medium","high"):
+        raise ValueError("Invalid confidence")
+    with connection() as db:
+        previous=db.execute("SELECT approved FROM classifications WHERE company_name=? COLLATE NOCASE",
+                            (company_name,)).fetchone()
+        if previous and previous["approved"] and not approved:
+            raise ValueError("Approved classifications cannot be downgraded without explicit review")
+        db.execute("""INSERT INTO classifications
+            (company_name,industry,confidence,source,approved,updated_by,updated_at)
+            VALUES (?,?,?,?,?,?,?)
+            ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
+                confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
+                updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+            (company_name,industry,confidence,source,int(bool(approved)),actor,int(time.time())))
+        db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
+                   ("classification_saved_by_"+str(actor),actor,int(time.time())))
