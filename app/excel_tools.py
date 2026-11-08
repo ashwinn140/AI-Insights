@@ -55,18 +55,25 @@ def parse_classification_xlsx(payload):
     header_names=[str(x or "").strip().lower() for x in header]
     country_index=header_names.index("country") if "country" in header_names else None
     rows=[]
+    skipped=0
     for n,row in enumerate(iterator,2):
         if n>10001: raise ValueError("Maximum 10,000 rows per import")
         if not any(x is not None for x in row): continue
         if len(row)<4: raise ValueError(f"Row {n}: missing columns")
         name,industry,confidence,source=row[:4]
-        if not all(isinstance(x,str) for x in (name,industry,confidence,source)):
-            raise ValueError(f"Row {n}: invalid text fields")
+        if not isinstance(name,str) or not name.strip():
+            raise ValueError(f"Row {n}: invalid company name")
         country=row[country_index] if country_index is not None and len(row)>country_index else ""
         if country is None: country=""
         if not isinstance(country,str): raise ValueError(f"Row {n}: country must be text")
-        rows.append((name,industry,confidence.lower(),source,True,country))
-    return rows
+        # Unresolved research rows remain pending; never manufacture an industry.
+        if industry is None or not str(industry).strip():
+            skipped+=1
+            continue
+        if not all(isinstance(x,str) for x in (industry,confidence,source)):
+            raise ValueError(f"Row {n}: classified rows require text industry, confidence and source")
+        rows.append((name,industry,confidence.strip().lower(),source,True,country))
+    return rows,skipped
 
 def classification_template():
     return workbook_bytes([("Classification import",
