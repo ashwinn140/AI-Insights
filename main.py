@@ -370,7 +370,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     Each shipment is counted at most once for the selected counterparty role.
     Classification is an exact normalized company-name match, not inferred.
     """
-    if role not in ("shipper","consignee"):
+    if role not in ("primary","shipper","consignee"):
         raise HTTPException(400,"Role must be shipper or consignee")
     companies,lobs=allowed_scope(user,company,lob)
     from app.crossfilter import conditions
@@ -384,7 +384,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     import json
     # JSON recordset avoids exposing the independent SQLite database to PostgreSQL.
     params["classifications"]=json.dumps(classifications)
-    counterparty="shipper" if role=="shipper" else "consignee"
+    counterparty=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     sql=f"""WITH approved AS (
        SELECT LOWER(BTRIM(company_name)) AS normalized_name, MIN(industry) AS industry
        FROM jsonb_to_recordset(CAST(:classifications AS jsonb))
@@ -395,7 +395,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
               COALESCE(a.industry,'Unclassified') AS industry,
               COUNT(*) AS shipments
        FROM ai_insights_source.current_shipments s
-       LEFT JOIN approved a ON LOWER(BTRIM(s.{counterparty}))=a.normalized_name
+       LEFT JOIN approved a ON LOWER(BTRIM({counterparty}))=a.normalized_name
        WHERE {where} AND s.shipment_date IS NOT NULL
        GROUP BY 1,2
     )
@@ -415,7 +415,7 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
         start: str|None=None,end: str|None=None,role: str="shipper",
         user=Depends(current_user)):
     """Read-only industry drilldown: lanes, mode, branches, counterparties and months."""
-    if role not in ("shipper","consignee"): raise HTTPException(400,"Invalid role")
+    if role not in ("primary","shipper","consignee"): raise HTTPException(400,"Invalid role")
     if not industry or len(industry)>100: raise HTTPException(400,"Invalid industry")
     companies,lobs=allowed_scope(user,company,lob)
     from app.crossfilter import conditions
@@ -426,14 +426,14 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     import json
     params["mapping"]=json.dumps(mapping)
     params["industry"]=industry
-    field="shipper" if role=="shipper" else "consignee"
+    field=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     base=f"""WITH industry_map AS (
        SELECT LOWER(BTRIM(company_name)) AS name,MIN(industry) AS industry
        FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text)
        GROUP BY 1
     ), scoped AS (
        SELECT s.* FROM ai_insights_source.current_shipments s
-       LEFT JOIN industry_map m ON LOWER(BTRIM(s.{field}))=m.name
+       LEFT JOIN industry_map m ON LOWER(BTRIM({field}))=m.name
        WHERE {where} AND COALESCE(m.industry,'Unclassified')=:industry
     )"""
     queries={
@@ -441,7 +441,7 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
       "departments":"SELECT company,report_type,COUNT(*) AS shipments,COUNT(DISTINCT key) AS distinct_keys,COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight FROM scoped GROUP BY 1,2 ORDER BY shipments DESC",
       "lanes":"SELECT COALESCE(NULLIF(BTRIM(origin),''),'Unknown') AS origin,COALESCE(NULLIF(BTRIM(destination),''),'Unknown') AS destination,COUNT(*) AS shipments FROM scoped GROUP BY 1,2 ORDER BY shipments DESC LIMIT 25",
       "branches":"SELECT COALESCE(NULLIF(BTRIM(branch),''),'Unknown') AS branch,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 15",
-      "counterparties":f"SELECT COALESCE(NULLIF(BTRIM({'consignee' if role=='shipper' else 'shipper'}),''),'Unknown') AS name,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 25",
+      "counterparties":f"SELECT COALESCE(NULLIF(BTRIM({('CASE WHEN report_type IN (\'AE\',\'OE\') THEN consignee ELSE shipper END' if role=='primary' else ('consignee' if role=='shipper' else 'shipper'))}),''),'Unknown') AS name,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 25",
       "months":"SELECT TO_CHAR(DATE_TRUNC('month',shipment_date),'YYYY-MM') AS month,COUNT(*) AS shipments FROM scoped WHERE shipment_date IS NOT NULL GROUP BY 1 ORDER BY 1"
     }
     engine=scoped_engine()
