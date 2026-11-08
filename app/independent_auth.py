@@ -39,6 +39,21 @@ def initialize():
             approved INTEGER NOT NULL DEFAULT 0, updated_by INTEGER,
             updated_at INTEGER NOT NULL
         )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS research_entities (
+            entity_key TEXT PRIMARY KEY, original_name TEXT NOT NULL,
+            normalized_name TEXT, canonical_entity TEXT, parent_group TEXT,
+            alias_group TEXT, country TEXT, industry TEXT, sub_industry TEXT,
+            activity TEXT, activity_type TEXT, rationale TEXT, evidence_url TEXT,
+            evidence_type TEXT, confidence TEXT, verification_status TEXT,
+            research_date TEXT, appearances INTEGER, shipper_appearances INTEGER,
+            consignee_appearances INTEGER, ngl_appearances INTEGER,
+            ncs_appearances INTEGER, review_notes TEXT, provisional_industry TEXT,
+            unresolved_reason TEXT, record_origin TEXT, imported_at INTEGER NOT NULL
+        )""")
+        db.execute("""CREATE INDEX IF NOT EXISTS idx_research_industry
+            ON research_entities(industry,verification_status)""")
+        db.execute("""CREATE INDEX IF NOT EXISTS idx_research_name
+            ON research_entities(original_name)""")
         db.execute("""CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, event TEXT NOT NULL, user_id INTEGER,
             created_at INTEGER NOT NULL
