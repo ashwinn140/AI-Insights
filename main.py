@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pathlib import Path
 from io import BytesIO
 from app.crossfilter import query_rows,filter_options
+from app.research_catalog import parse_research,import_research,research_summary,research_list
 from app.excel_tools import analytics_export,parse_classification_xlsx,classification_template,workbook_bytes
 from app import independent_auth as auth
 from app.industry_explorer import summary, top_trade_lanes, company_appearances
@@ -318,6 +319,28 @@ def opportunities_api(company: str | None=None,lob: str | None=None,
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(user=Depends(require_admin)):
     return Path(__file__).parent.joinpath("app/admin.html").read_text()
+
+@app.get("/api/research/summary")
+def research_summary_api(user=Depends(current_user)):
+    return research_summary()
+
+@app.get("/api/research/entities")
+def research_entities_api(q:str="",status:str="",industry:str="",offset:int=0,user=Depends(current_user)):
+    if len(q)>100 or len(status)>100 or len(industry)>100:
+        raise HTTPException(400,"Invalid filters")
+    return {"results":research_list(q,status,industry,offset=offset)}
+
+@app.post("/api/admin/research/import")
+async def research_import_api(request:Request,file:UploadFile=File(...),user=Depends(require_admin)):
+    same_origin(request)
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(400,"XLSX required")
+    payload=await file.read(20*1024*1024+1)
+    try:
+        records=parse_research(payload)
+        return {"imported":import_research(user["id"],records)}
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
 
 @app.get("/classifications",response_class=HTMLResponse)
 def classification_page(user=Depends(current_user)):
