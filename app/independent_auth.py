@@ -289,7 +289,11 @@ def classification_import(actor,rows):
                 ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
                 country=CASE WHEN excluded.country <> '' THEN excluded.country ELSE classifications.country END,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
-                updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+                updated_by=excluded.updated_by,updated_at=excluded.updated_at
+                WHERE CASE classifications.confidence
+                    WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END
+                    <= CASE excluded.confidence
+                    WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END""",
                 (name,industry,country,confidence,source,approved,actor,int(time.time())))
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_excel_import_"+str(len(normalized)),actor,int(time.time())))
