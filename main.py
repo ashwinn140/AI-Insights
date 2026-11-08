@@ -263,9 +263,9 @@ async def classification_xlsx_import(request:Request,file:UploadFile=File(...),u
         raise HTTPException(400,"XLSX file required")
     payload=await file.read(8*1024*1024+1)
     try:
-        rows=parse_classification_xlsx(payload)
+        rows,skipped=parse_classification_xlsx(payload)
         count=auth.classification_import(user["id"],rows)
-        return {"imported":count}
+        return {"imported":count,"skipped_unclassified":skipped}
     except ValueError as exc: raise HTTPException(400,str(exc))
 
 @app.get("/companies",response_class=HTMLResponse)
@@ -506,7 +506,7 @@ def classification_pending_template(user=Depends(current_user)):
     output=workbook_bytes([("Pending classification",
         ["company_name","industry","confidence","source","country"],
         [[r["company_name"],"","","",r.get("country") or ""] for r in rows]),
-        ("AI Prompt",["Instructions"],[["You are a careful B2B freight-forwarding company researcher. Complete ONLY Sheet 1 (Pending classification) in this workbook. For each firm, research the legal or operational country of the named entity, its primary industry vertical, confidence (low/medium/high), and a verifiable source URL or evidence note. Do not infer country from shipment origin/destination, a generic name, or the freight forwarder. Distinguish similarly named entities and subsidiaries by country; where uncertain, leave country or industry blank and set confidence low with a brief explanation in source. Never invent evidence. Preserve company_name exactly, the five column names and their order (company_name, industry, confidence, source, country), and all original rows. Do not add columns to Sheet 1, remove rows, or modify its headers. Leave Sheet 2 unchanged. Output a completed XLSX ready for direct upload to AI Insights; process at most 500 populated rows per upload (split into files of 500). Use concise industry categories and full country names, not ISO codes. A blank country is acceptable if it cannot be verified."]])])
+        ("AI Prompt",["Instructions"],[["You are a careful B2B freight-forwarding company researcher. Complete ONLY Sheet 1 (Pending classification) in this workbook. For each firm, research the legal or operational country of the named entity, its primary industry vertical, confidence (low/medium/high), and a verifiable source URL or evidence note. Do not infer country from shipment origin/destination, a generic name, or the freight forwarder. Distinguish similarly named entities and subsidiaries by country; where uncertain, leave country or industry blank and set confidence low with a brief explanation in source. Never invent evidence. Preserve company_name exactly, the five column names and their order (company_name, industry, confidence, source, country), and all original rows. Do not add columns to Sheet 1, remove rows, or modify its headers. Leave Sheet 2 unchanged. Output one completed XLSX containing up to 10,000 organization rows, ready for direct upload to AI Insights. Do not split into 500-row files. Keep all original rows, including unresolved firms; blank industry is permitted and those rows will remain pending on import. For every classified row, fill industry, confidence (low/medium/high), and a meaningful evidence source; do not fabricate classifications. Use concise industry categories and full country names, not ISO codes. A blank country is acceptable if it cannot be verified."]])])
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
