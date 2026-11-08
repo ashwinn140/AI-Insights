@@ -172,7 +172,15 @@ def allowed_scope(user,company,lob):
     if not _database_verified: raise HTTPException(503,"Source not verified")
     def parse(raw,authorized):
         if not raw: return authorized
-        if raw.startswith("j:"):\n            import json\n            try: decoded=json.loads(raw[2:])\n            except (ValueError,TypeError): raise HTTPException(400,"Invalid selection")\n            if not isinstance(decoded,list) or any(not isinstance(x,str) for x in decoded):\n                raise HTTPException(400,"Invalid selection")\n            values=list(dict.fromkeys(x.strip() for x in decoded if x.strip()))\n        else:\n            values=list(dict.fromkeys(x.strip() for x in raw.split(",") if x.strip()))
+        if raw.startswith("j:"):
+            import json
+            try: decoded=json.loads(raw[2:])
+            except (ValueError,TypeError): raise HTTPException(400,"Invalid selection")
+            if not isinstance(decoded,list) or any(not isinstance(x,str) for x in decoded):
+                raise HTTPException(400,"Invalid selection")
+            values=list(dict.fromkeys(x.strip() for x in decoded if x.strip()))
+        else:
+            values=list(dict.fromkeys(x.strip() for x in raw.split(",") if x.strip()))
         if not values or len(values)>len(authorized) or any(v not in authorized for v in values):
             raise HTTPException(403,"Selection outside authorized scope")
         return values
