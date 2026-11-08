@@ -9,11 +9,14 @@ def conditions(companies,lobs,filters):
     where=["company=ANY(:companies)","report_type=ANY(:lobs)"]
     params={"companies":cs,"lobs":ls}
     for key,column in FILTER_COLUMNS.items():
-        value=(filters.get(key) or "").strip()
-        if len(value)>200: raise ValueError("Filter exceeds 200 characters")
-        if value:
-            where.append(f"{column}=:f_{key}")
-            params["f_"+key]=value
+        raw=(filters.get(key) or "").strip()
+        if len(raw)>1500: raise ValueError("Filter exceeds allowed length")
+        values=[x.strip() for x in raw.split(",") if x.strip()]
+        if len(values)>30 or any(len(x)>200 for x in values):
+            raise ValueError("Too many or too long filter selections")
+        if values:
+            where.append(f"{column}=ANY(:f_{key})")
+            params["f_"+key]=values
     start,end=filters.get("start"),filters.get("end")
     for key,value in (("start",start),("end",end)):
         if value:
