@@ -107,3 +107,9 @@
 .ai-vertical-row strong{font-variant-numeric:tabular-nums}
 .ai-vertical-row .ai-contribution-track{grid-column:1/-1}
 @media(max-width:760px){.ai-vertical-grids{grid-template-columns:1fr}}
+
+.ai-vertical-story{margin:16px 0 20px;padding:17px 20px;background:#162b42;border:1px solid #36516f;border-radius:11px}
+.ai-vertical-story h4{margin:0 0 10px;font-size:15px}
+.ai-insight-story{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.ai-insight-story p{margin:0;padding:12px;background:#0f1e30;border-radius:8px;font-size:13px;line-height:1.5;color:#e3efff}
+@media(max-width:760px){.ai-insight-story{grid-template-columns:1fr}}
