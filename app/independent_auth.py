@@ -300,6 +300,7 @@ def pending_classification_names(limit=10000):
     with connection() as db:
         return [dict(row) for row in db.execute("""
             SELECT r.original_name AS company_name,
+                   COALESCE(r.country,'') AS country,
                    COALESCE(r.verification_status,'Unknown') AS research_status,
                    COALESCE(r.appearances,0) AS appearances
             FROM research_entities r
