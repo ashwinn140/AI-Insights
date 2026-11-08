@@ -169,9 +169,13 @@ def scoped_engine():
 
 def allowed_scope(user,company,lob):
     if not _database_verified: raise HTTPException(503,"Source not verified")
-    if company and company not in user["companies"]: raise HTTPException(403,"Company not authorized")
-    if lob and lob not in user["lobs"]: raise HTTPException(403,"Department not authorized")
-    return ([company] if company else user["companies"],[lob] if lob else user["lobs"])
+    def parse(raw,authorized):
+        if not raw: return authorized
+        values=list(dict.fromkeys(x.strip() for x in raw.split(",") if x.strip()))
+        if not values or len(values)>len(authorized) or any(v not in authorized for v in values):
+            raise HTTPException(403,"Selection outside authorized scope")
+        return values
+    return parse(company,user["companies"]),parse(lob,user["lobs"])
 
 def require_admin(user=Depends(current_user)):
     if user.get("role") != "admin":
