@@ -5,8 +5,11 @@ No customer data is returned until authentication and authorization are implemen
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response, Depends
 from fastapi.responses import HTMLResponse
+from pathlib import Path
+from app import independent_auth as auth
+from app.industry_explorer import summary, top_trade_lanes, company_appearances
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
@@ -65,6 +68,9 @@ def verify_restricted_source():
 async def lifespan(app: FastAPI):
     global _database_verified
     _database_verified = verify_restricted_source()
+    auth.initialize()
+    if auth.provision_initial_admin():
+        logger.info('Independent AI Insights admin provisioned from private environment configuration')
     yield
 
 app = FastAPI(title="AI Insights Operations", lifespan=lifespan,
@@ -75,18 +81,78 @@ def healthz():
     return {"status": "running", "product": "AI Insights",
             "data_access": "disabled", "production_ready": False}
 
+def same_origin(request: Request):
+    origin = request.headers.get("origin")
+    host = request.headers.get("host", "")
+    if not origin or not host or origin not in ("https://" + host, "http://localhost:" + host.rsplit(":",1)[-1]):
+        raise HTTPException(403, "Invalid request origin")
+
+def current_user(request: Request):
+    user = auth.session_user(request.cookies.get("ai_insights_session"))
+    if not user:
+        raise HTTPException(401, "Authentication required")
+    return user
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return """<!doctype html><html lang="en"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Insights</title><style>body{font:16px system-ui;background:#0b1220;color:#edf2f7;margin:0;display:grid;min-height:100vh;place-items:center}
-main{max-width:650px;padding:40px}h1{font-size:42px}p{line-height:1.7}small{color:#9db0c6}
-.status{display:inline-block;border:1px solid #526174;border-radius:20px;padding:6px 14px}</style>
-<main><small>INDEPENDENT OPERATIONS INTELLIGENCE</small><h1>AI Insights</h1>
-<p class="status">Private deployment — access not activated</p>
-<p>The application is isolated from NG-Dashboard. Data features remain disabled until secure authentication and authorization are implemented.</p>
-<small>No profitability or accounting data is available to this service.</small></main></html>"""
+    return Path(__file__).parent.joinpath("app/industry_explorer.html").read_text()
+
+@app.post("/auth/login")
+async def login(request: Request, response: Response):
+    same_origin(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Invalid request")
+    email, password = payload.get("email"), payload.get("password")
+    if not isinstance(email, str) or not isinstance(password, str) or len(email)>254 or len(password)>1024:
+        raise HTTPException(400, "Invalid request")
+    token = auth.authenticate(email, password)
+    if not token:
+        raise HTTPException(401, "Invalid credentials")
+    response.set_cookie("ai_insights_session", token, max_age=12*3600,
+                        secure=True, httponly=True, samesite="lax", path="/")
+    response.headers["Cache-Control"] = "no-store"
+    return {"ok": True}
+
+@app.get("/auth/me")
+def me(user=Depends(current_user)):
+    return user
+
+@app.post("/auth/logout")
+def logout(request: Request, response: Response):
+    same_origin(request)
+    auth.logout(request.cookies.get("ai_insights_session"))
+    response.delete_cookie("ai_insights_session", path="/")
+    return {"ok": True}
+
+@app.get("/api/explorer")
+def explorer(company: str | None = None, lob: str | None = None, user=Depends(current_user)):
+    if not _database_verified:
+        raise HTTPException(503, "Operational source not verified")
+    companies, lobs = user["companies"], user["lobs"]
+    if company is not None:
+        if company not in companies:
+            raise HTTPException(403, "Company not authorized")
+        companies = [company]
+    if lob is not None:
+        if lob not in lobs:
+            raise HTTPException(403, "Department not authorized")
+        lobs = [lob]
+    from sqlalchemy.engine import URL
+    url = URL.create("postgresql+psycopg2", username=os.environ["SHIPMENT_DB_USER"],
+                     password=os.environ["SHIPMENT_DB_PASSWORD"],
+                     host=os.environ["SHIPMENT_DB_HOST"],
+                     port=int(os.environ["SHIPMENT_DB_PORT"]),
+                     database=os.environ["SHIPMENT_DB_NAME"])
+    engine = create_engine(url, pool_pre_ping=True, pool_size=1, max_overflow=0,
+        connect_args={"connect_timeout":5,"options":"-c default_transaction_read_only=on -c statement_timeout=10000"})
+    try:
+        return {"summary":summary(engine,companies=companies,lobs=lobs),
+                "lanes":top_trade_lanes(engine,companies=companies,lobs=lobs),
+                "participants":company_appearances(engine,companies=companies,lobs=lobs)}
+    finally:
+        engine.dispose()
 
 @app.get("/api/{path:path}")
 def locked_api(path: str):
-    raise HTTPException(status_code=503, detail="AI Insights data access is disabled pending production security gates")
+    raise HTTPException(404, "Feature not available")
