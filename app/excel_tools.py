@@ -52,6 +52,8 @@ def parse_classification_xlsx(payload):
     expected=["company_name","industry","confidence","source"]
     if not header or [str(x or "").strip().lower() for x in header[:4]]!=expected:
         raise ValueError("Expected columns: "+", ".join(expected))
+    header_names=[str(x or "").strip().lower() for x in header]
+    country_index=header_names.index("country") if "country" in header_names else None
     rows=[]
     for n,row in enumerate(iterator,2):
         if n>501: raise ValueError("Maximum 500 rows per import")
@@ -60,10 +62,13 @@ def parse_classification_xlsx(payload):
         name,industry,confidence,source=row[:4]
         if not all(isinstance(x,str) for x in (name,industry,confidence,source)):
             raise ValueError(f"Row {n}: invalid text fields")
-        rows.append((name,industry,confidence.lower(),source,True))
+        country=row[country_index] if country_index is not None and len(row)>country_index else ""
+        if country is None: country=""
+        if not isinstance(country,str): raise ValueError(f"Row {n}: country must be text")
+        rows.append((name,industry,confidence.lower(),source,True,country))
     return rows
 
 def classification_template():
     return workbook_bytes([("Classification import",
-        ["company_name","industry","confidence","source"],
-        [["Example Company","Example industry","medium","Verified source reference"]])])
+        ["company_name","industry","confidence","source","country"],
+        [["Example Company","Example industry","medium","Verified source reference","India"]])])
