@@ -11,11 +11,11 @@ class CrossFilterTests(unittest.TestCase):
             conditions([],["AE"],{})
     def test_all_filters_parameterized(self):
         where,params=conditions(["NG"],["AE"],{"origin":"Mumbai","shipper":"Acme","start":"2026-01-01"})
-        self.assertIn("origin=:f_origin",where)
-        self.assertIn("shipper=:f_shipper",where)
+        self.assertIn("origin=ANY(:f_origin)",where)
+        self.assertIn("shipper=ANY(:f_shipper)",where)
         self.assertNotIn("Acme",where)
-        self.assertEqual(params["f_shipper"],"Acme")
-    def test_invalid_date(self):
+        self.assertEqual(params["f_shipper"],["Acme"])
+    def test_multi_select(self):\n        where,params=conditions(["NG","NCS"],["AE","AI"],{"origin":"Mumbai,Hong Kong"})\n        self.assertEqual(params["f_origin"],["Mumbai","Hong Kong"])\n        self.assertIn("origin=ANY(:f_origin)",where)\n    def test_invalid_date(self):
         with self.assertRaises(ValueError):
             conditions(["NG"],["AE"],{"start":"yesterday"})
     def test_unknown_scope(self):
