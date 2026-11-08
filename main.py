@@ -371,6 +371,26 @@ def classification_status_api(user=Depends(current_user)):
 @app.get("/api/classifications/pending-template")
 def classification_pending_template(user=Depends(current_user)):
     rows=auth.pending_classification_names()
+    # If no research master is loaded, use authorized shipment counterparties.
+    if not rows:
+        companies,lobs=allowed_scope(user,None,None)
+        engine=scoped_engine()
+        try:
+            statement=text("""SELECT company_name FROM (
+              SELECT NULLIF(BTRIM(shipper),'') AS company_name
+              FROM ai_insights_source.current_shipments
+              WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+              UNION
+              SELECT NULLIF(BTRIM(consignee),'') AS company_name
+              FROM ai_insights_source.current_shipments
+              WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+            ) names WHERE company_name IS NOT NULL ORDER BY company_name LIMIT 10000""")
+            with engine.connect() as conn:
+                names=[row[0] for row in conn.execute(statement,{"companies":companies,"lobs":lobs})]
+        finally:
+            engine.dispose()
+        classified={r["company_name"].casefold() for r in auth.classification_list(limit=100000)}
+        rows=[{"company_name":name} for name in names if name.casefold() not in classified]
     output=workbook_bytes([("Pending classification",
         ["company_name","industry","confidence","source","approved"],
         [[r["company_name"],"","","","No"] for r in rows])])
