@@ -239,14 +239,14 @@ def dashboard_export(company: str|None=None,lob: str|None=None,origin: str|None=
                  "Cache-Control":"no-store"})
 
 @app.get("/api/admin/classifications/template")
-def classification_xlsx_template(user=Depends(require_admin)):
+def classification_xlsx_template(user=Depends(current_user)):
     return StreamingResponse(BytesIO(classification_template()),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-classification-template.xlsx",
                  "Cache-Control":"no-store"})
 
 @app.get("/api/admin/classifications/export")
-def classification_xlsx_export(user=Depends(require_admin)):
+def classification_xlsx_export(user=Depends(current_user)):
     rows=auth.classification_list(limit=500)
     output=workbook_bytes([("Classifications",
         ["company_name","industry","confidence","source","approved"],
@@ -258,13 +258,15 @@ def classification_xlsx_export(user=Depends(require_admin)):
                  "Cache-Control":"no-store"})
 
 @app.post("/api/admin/classifications/import")
-async def classification_xlsx_import(request:Request,file:UploadFile=File(...),user=Depends(require_admin)):
+async def classification_xlsx_import(request:Request,file:UploadFile=File(...),user=Depends(current_user)):
     same_origin(request)
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(400,"XLSX file required")
     payload=await file.read(2*1024*1024+1)
     try:
         rows=parse_classification_xlsx(payload)
+        if user.get("role")!="admin" and any(row[4] for row in rows):
+            raise HTTPException(403,"Only administrators may approve classifications")
         count=auth.classification_import(user["id"],rows)
         return {"imported":count}
     except ValueError as exc: raise HTTPException(400,str(exc))
@@ -355,15 +357,17 @@ def classification_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/classifications.html").read_text()
 
 @app.get("/api/classifications")
-def classifications_api(q: str="",user=Depends(require_admin)):
+def classifications_api(q: str="",user=Depends(current_user)):
     if len(q)>100: raise HTTPException(400,"Search too long")
     return {"results":auth.classification_list(q)}
 
 @app.post("/api/admin/classifications")
-async def classification_upsert(request: Request,user=Depends(require_admin)):
+async def classification_upsert(request: Request,user=Depends(current_user)):
     same_origin(request)
     payload=await request.json()
     try:
+        if payload.get("approved") and user.get("role")!="admin":
+            raise HTTPException(403,"Only administrators may approve classifications")
         auth.classification_save(user["id"],payload["company_name"],payload["industry"],
             payload["confidence"],payload["source"],payload.get("approved",False))
         return {"ok":True}
