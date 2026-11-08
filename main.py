@@ -411,6 +411,49 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     return {"role":role,"rows":rows,"classification_basis":"Saved classifications; exact normalized counterparty match; shipment rows, not unique jobs.",
             "total":sum(int(r["shipments"]) for r in rows)}
 
+@app.get("/api/classifications/vertical-performance")
+def vertical_performance(industry: str,company: str|None=None,lob: str|None=None,
+        start: str|None=None,end: str|None=None,role: str="shipper",
+        user=Depends(current_user)):
+    """Read-only industry drilldown: lanes, mode, branches, counterparties and months."""
+    if role not in ("shipper","consignee"): raise HTTPException(400,"Invalid role")
+    if not industry or len(industry)>100: raise HTTPException(400,"Invalid industry")
+    companies,lobs=allowed_scope(user,company,lob)
+    from app.crossfilter import conditions
+    try: where,params=conditions(companies,lobs,{"start":start,"end":end})
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    with auth.connection() as db:
+        mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications")]
+    import json
+    params["mapping"]=json.dumps(mapping)
+    params["industry"]=industry
+    field="shipper" if role=="shipper" else "consignee"
+    base=f"""WITH industry_map AS (
+       SELECT LOWER(BTRIM(company_name)) AS name,MIN(industry) AS industry
+       FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text)
+       GROUP BY 1
+    ), scoped AS (
+       SELECT s.* FROM ai_insights_source.current_shipments s
+       LEFT JOIN industry_map m ON LOWER(BTRIM(s.{field}))=m.name
+       WHERE {where} AND COALESCE(m.industry,'Unclassified')=:industry
+    )"""
+    queries={
+      "overview":"SELECT COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_keys,COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight,MIN(shipment_date) AS first_date,MAX(shipment_date) AS last_date FROM scoped",
+      "departments":"SELECT company,report_type,COUNT(*) AS shipments,COUNT(DISTINCT key) AS distinct_keys,COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight FROM scoped GROUP BY 1,2 ORDER BY shipments DESC",
+      "lanes":"SELECT COALESCE(NULLIF(BTRIM(origin),''),'Unknown') AS origin,COALESCE(NULLIF(BTRIM(destination),''),'Unknown') AS destination,COUNT(*) AS shipments FROM scoped GROUP BY 1,2 ORDER BY shipments DESC LIMIT 25",
+      "branches":"SELECT COALESCE(NULLIF(BTRIM(branch),''),'Unknown') AS branch,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 15",
+      "counterparties":f"SELECT COALESCE(NULLIF(BTRIM({'consignee' if role=='shipper' else 'shipper'}),''),'Unknown') AS name,COUNT(*) AS shipments FROM scoped GROUP BY 1 ORDER BY shipments DESC LIMIT 25",
+      "months":"SELECT TO_CHAR(DATE_TRUNC('month',shipment_date),'YYYY-MM') AS month,COUNT(*) AS shipments FROM scoped WHERE shipment_date IS NOT NULL GROUP BY 1 ORDER BY 1"
+    }
+    engine=scoped_engine()
+    try:
+        with engine.connect() as conn:
+            result={k:[dict(r) for r in conn.execute(text(base+" "+q),params).mappings()] for k,q in queries.items()}
+    finally: engine.dispose()
+    return {"industry":industry,"role":role,"data":result,
+            "notes":["Counts are operational shipment rows, not financial contribution.",
+                     "Agent nomination, salesperson and introducer are not in the verified restricted view; not inferred."]}
+
 @app.get("/api/classifications/industry-status")
 def classification_status_api(user=Depends(current_user)):
     return auth.classification_industry_status()
