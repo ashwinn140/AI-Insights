@@ -11,7 +11,15 @@ def conditions(companies,lobs,filters):
     for key,column in FILTER_COLUMNS.items():
         raw=(filters.get(key) or "").strip()
         if len(raw)>1500: raise ValueError("Filter exceeds allowed length")
-        if raw.startswith("j:"):\n            import json\n            try: values=json.loads(raw[2:])\n            except (ValueError,TypeError): raise ValueError("Invalid filter selection")\n            if not isinstance(values,list) or any(not isinstance(x,str) for x in values):\n                raise ValueError("Invalid filter selection")\n            values=[x.strip() for x in values if x.strip()]\n        else:\n            values=[x.strip() for x in raw.split(",") if x.strip()]
+        if raw.startswith("j:"):
+            import json
+            try: values=json.loads(raw[2:])
+            except (ValueError,TypeError): raise ValueError("Invalid filter selection")
+            if not isinstance(values,list) or any(not isinstance(x,str) for x in values):
+                raise ValueError("Invalid filter selection")
+            values=[x.strip() for x in values if x.strip()]
+        else:
+            values=[x.strip() for x in raw.split(",") if x.strip()]
         if len(values)>30 or any(len(x)>200 for x in values):
             raise ValueError("Too many or too long filter selections")
         if values:
