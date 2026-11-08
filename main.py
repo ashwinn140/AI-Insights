@@ -5,9 +5,12 @@ No customer data is returned until authentication and authorization are implemen
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request, Response, Depends
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pathlib import Path
+from io import BytesIO
+from app.crossfilter import query_rows,filter_options
+from app.excel_tools import analytics_export,parse_classification_xlsx,classification_template,workbook_bytes
 from app import independent_auth as auth
 from app.industry_explorer import summary, top_trade_lanes, company_appearances
 from app.company_discovery import search_companies, opportunity_candidates
@@ -169,6 +172,84 @@ def allowed_scope(user,company,lob):
     if company and company not in user["companies"]: raise HTTPException(403,"Company not authorized")
     if lob and lob not in user["lobs"]: raise HTTPException(403,"Department not authorized")
     return ([company] if company else user["companies"],[lob] if lob else user["lobs"])
+
+def dashboard_filters(origin=None,destination=None,shipper=None,consignee=None,branch=None,start=None,end=None):
+    return dict(origin=origin,destination=destination,shipper=shipper,consignee=consignee,
+                branch=branch,start=start,end=end)
+
+@app.get("/api/dashboard")
+def dashboard(company: str|None=None,lob: str|None=None,origin: str|None=None,
+              destination: str|None=None,shipper: str|None=None,consignee: str|None=None,
+              branch: str|None=None,start: str|None=None,end: str|None=None,
+              user=Depends(current_user)):
+    companies,lobs=allowed_scope(user,company,lob)
+    engine=scoped_engine()
+    try:
+        return query_rows(engine,companies,lobs,
+            dashboard_filters(origin,destination,shipper,consignee,branch,start,end))
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    finally: engine.dispose()
+
+@app.get("/api/dashboard/options")
+def dashboard_options(company: str|None=None,lob: str|None=None,origin: str|None=None,
+              destination: str|None=None,shipper: str|None=None,consignee: str|None=None,
+              branch: str|None=None,start: str|None=None,end: str|None=None,
+              user=Depends(current_user)):
+    companies,lobs=allowed_scope(user,company,lob)
+    engine=scoped_engine()
+    try:
+        return filter_options(engine,companies,lobs,
+            dashboard_filters(origin,destination,shipper,consignee,branch,start,end))
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    finally: engine.dispose()
+
+@app.get("/api/dashboard/export")
+def dashboard_export(company: str|None=None,lob: str|None=None,origin: str|None=None,
+              destination: str|None=None,shipper: str|None=None,consignee: str|None=None,
+              branch: str|None=None,start: str|None=None,end: str|None=None,
+              user=Depends(current_user)):
+    companies,lobs=allowed_scope(user,company,lob)
+    engine=scoped_engine()
+    try:
+        data=query_rows(engine,companies,lobs,
+            dashboard_filters(origin,destination,shipper,consignee,branch,start,end),limit=100)
+        output=analytics_export(data)
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    finally: engine.dispose()
+    return StreamingResponse(BytesIO(output),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-operations.xlsx",
+                 "Cache-Control":"no-store"})
+
+@app.get("/api/admin/classifications/template")
+def classification_xlsx_template(user=Depends(require_admin)):
+    return StreamingResponse(BytesIO(classification_template()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-classification-template.xlsx",
+                 "Cache-Control":"no-store"})
+
+@app.get("/api/admin/classifications/export")
+def classification_xlsx_export(user=Depends(require_admin)):
+    rows=auth.classification_list(limit=500)
+    output=workbook_bytes([("Classifications",
+        ["company_name","industry","confidence","source","approved"],
+        [[r["company_name"],r["industry"],r["confidence"],r["source"],
+          "Yes" if r["approved"] else "No"] for r in rows])])
+    return StreamingResponse(BytesIO(output),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-classifications.xlsx",
+                 "Cache-Control":"no-store"})
+
+@app.post("/api/admin/classifications/import")
+async def classification_xlsx_import(request:Request,file:UploadFile=File(...),user=Depends(require_admin)):
+    same_origin(request)
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(400,"XLSX file required")
+    payload=await file.read(2*1024*1024+1)
+    try:
+        rows=parse_classification_xlsx(payload)
+        count=auth.classification_import(user["id"],rows)
+        return {"imported":count}
+    except ValueError as exc: raise HTTPException(400,str(exc))
 
 @app.get("/companies",response_class=HTMLResponse)
 def companies_page(user=Depends(current_user)):
