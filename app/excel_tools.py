@@ -49,24 +49,21 @@ def parse_classification_xlsx(payload):
     ws=wb.active
     iterator=ws.iter_rows(values_only=True)
     header=next(iterator,None)
-    expected=["company_name","industry","confidence","source","approved"]
-    if not header or [str(x or "").strip().lower() for x in header[:5]]!=expected:
+    expected=["company_name","industry","confidence","source"]
+    if not header or [str(x or "").strip().lower() for x in header[:4]]!=expected:
         raise ValueError("Expected columns: "+", ".join(expected))
     rows=[]
     for n,row in enumerate(iterator,2):
         if n>501: raise ValueError("Maximum 500 rows per import")
         if not any(x is not None for x in row): continue
-        if len(row)<5: raise ValueError(f"Row {n}: missing columns")
-        name,industry,confidence,source,approved=row[:5]
+        if len(row)<4: raise ValueError(f"Row {n}: missing columns")
+        name,industry,confidence,source=row[:4]
         if not all(isinstance(x,str) for x in (name,industry,confidence,source)):
             raise ValueError(f"Row {n}: invalid text fields")
-        flag=str(approved or "").strip().lower()
-        if flag not in ("yes","no","true","false","1","0",""):
-            raise ValueError(f"Row {n}: approved must be Yes or No")
-        rows.append((name,industry,confidence.lower(),source,flag in ("yes","true","1")))
+        rows.append((name,industry,confidence.lower(),source,True))
     return rows
 
 def classification_template():
     return workbook_bytes([("Classification import",
-        ["company_name","industry","confidence","source","approved"],
-        [["Example Company","Example industry","medium","Verified source reference","No"]])])
+        ["company_name","industry","confidence","source"],
+        [["Example Company","Example industry","medium","Verified source reference"]])])
