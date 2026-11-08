@@ -35,10 +35,13 @@ def initialize():
             db.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'viewer'")
         db.execute("""CREATE TABLE IF NOT EXISTS classifications (
             id INTEGER PRIMARY KEY, company_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-            industry TEXT NOT NULL, confidence TEXT NOT NULL, source TEXT NOT NULL,
+            industry TEXT NOT NULL, country TEXT NOT NULL DEFAULT '', confidence TEXT NOT NULL, source TEXT NOT NULL,
             approved INTEGER NOT NULL DEFAULT 1, updated_by INTEGER,
             updated_at INTEGER NOT NULL
         )""")
+        existing_columns={r[1] for r in db.execute("PRAGMA table_info(classifications)")}
+        if "country" not in existing_columns:
+            db.execute("ALTER TABLE classifications ADD COLUMN country TEXT NOT NULL DEFAULT ''")
         # One-time compatibility migration: existing classifications are active immediately.
         db.execute("UPDATE classifications SET approved=1 WHERE approved=0")
         db.execute("""CREATE TABLE IF NOT EXISTS research_entities (
@@ -237,27 +240,30 @@ def audit_events(limit=100):
 def classification_list(term="",limit=200):
     term=(term or "").strip()
     with connection() as db:
-        return [dict(r) for r in db.execute("""SELECT id,company_name,industry,confidence,source,
+        return [dict(r) for r in db.execute("""SELECT id,company_name,industry,country,confidence,source,
             approved,updated_at FROM classifications
             WHERE company_name LIKE ? ORDER BY company_name LIMIT ?""",
             ("%"+term+"%",min(limit,500)))]
 
-def classification_save(actor,company_name,industry,confidence,source,approved):
+def classification_save(actor,company_name,industry,confidence,source,approved,country=""):
     company_name=company_name.strip()
     industry=industry.strip()
     source=source.strip()
+    country=(country or "").strip()
+    if len(country)>100: raise ValueError("Country must be 100 characters or fewer")
     if not 2<=len(company_name)<=200 or not 2<=len(industry)<=100 or not 3<=len(source)<=500:
         raise ValueError("Company, industry and evidence source are required")
     if confidence not in ("low","medium","high"):
         raise ValueError("Invalid confidence")
     with connection() as db:
         db.execute("""INSERT INTO classifications
-            (company_name,industry,confidence,source,approved,updated_by,updated_at)
-            VALUES (?,?,?,?,?,?,?)
+            (company_name,industry,country,confidence,source,approved,updated_by,updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
             ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
+                country=CASE WHEN excluded.country <> '' THEN excluded.country ELSE classifications.country END,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
                 updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
-            (company_name,industry,confidence,source,1,actor,int(time.time())))
+            (company_name,industry,country,confidence,source,1,actor,int(time.time())))
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_saved_by_"+str(actor),actor,int(time.time())))
 
@@ -265,22 +271,25 @@ def classification_import(actor,rows):
     """All-or-nothing import with validation before writes."""
     import re
     normalized=[]
-    for name,industry,confidence,source,approved in rows:
+    for row in rows:
+        name,industry,confidence,source,approved,*extras=row
+        country=(extras[0] or "").strip() if extras else ""
+        if len(country)>100: raise ValueError("Country must be 100 characters or fewer")
         name=name.strip();industry=industry.strip();source=source.strip()
         if not 2<=len(name)<=200 or not 2<=len(industry)<=100 or not 3<=len(source)<=500:
             raise ValueError("Company, industry and evidence source are required")
         if confidence not in ("low","medium","high"):
             raise ValueError("Invalid confidence")
-        normalized.append((name,industry,confidence,source,1))
+        normalized.append((name,industry,confidence,source,1,country))
     with connection() as db:
-        for name,industry,confidence,source,approved in normalized:
+        for name,industry,confidence,source,approved,country in normalized:
             db.execute("""INSERT INTO classifications
-                (company_name,industry,confidence,source,approved,updated_by,updated_at)
-                VALUES (?,?,?,?,?,?,?)
+                (company_name,industry,country,confidence,source,approved,updated_by,updated_at)
+                VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
                 updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
-                (name,industry,confidence,source,approved,actor,int(time.time())))
+                (name,industry,country,confidence,source,approved,actor,int(time.time())))
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_excel_import_"+str(len(normalized)),actor,int(time.time())))
     return len(normalized)
