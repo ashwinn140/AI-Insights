@@ -274,6 +274,32 @@ def companies_api(company: str | None=None,lob: str | None=None,q: str="",
     try: return {"results":search_companies(engine,companies=companies,lobs=lobs,term=q,filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end))}
     finally: engine.dispose()
 
+@app.get("/api/discovery/export")
+def discovery_export(kind: str,company: str|None=None,lob: str|None=None,
+                     origin: str|None=None,destination: str|None=None,
+                     branch: str|None=None,start: str|None=None,end: str|None=None,
+                     q: str="",user=Depends(current_user)):
+    if kind not in ("companies","opportunities"): raise HTTPException(400,"Invalid export type")
+    companies,lobs=allowed_scope(user,company,lob)
+    filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end)
+    engine=scoped_engine()
+    try:
+        if kind=="companies":
+            rows=search_companies(engine,companies=companies,lobs=lobs,term=q,limit=100,filters=filters)
+            cols=["Company name","Role","Appearances","Distinct lanes"]
+            fields=["name","role","appearances","lanes"]
+        else:
+            rows=opportunity_candidates(engine,companies=companies,lobs=lobs,limit=100,filters=filters)
+            cols=["Company name","Appearances","Distinct lanes"]
+            fields=["name","appearances","lane_count"]
+        output=workbook_bytes([(kind.title(),cols,[[r.get(k) for k in fields] for r in rows]),
+            ("Applied filters",["Filter","Value"],[(k,str(v)) for k,v in filters.items() if v])])
+    finally: engine.dispose()
+    return StreamingResponse(BytesIO(output),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-"+kind+".xlsx",
+                 "Cache-Control":"no-store"})
+
 @app.get("/api/opportunities")
 def opportunities_api(company: str | None=None,lob: str | None=None,
                       origin: str|None=None,destination: str|None=None,branch: str|None=None,
