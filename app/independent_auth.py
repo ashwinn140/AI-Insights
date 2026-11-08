@@ -247,3 +247,31 @@ def classification_save(actor,company_name,industry,confidence,source,approved):
             (company_name,industry,confidence,source,int(bool(approved)),actor,int(time.time())))
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_saved_by_"+str(actor),actor,int(time.time())))
+
+def classification_import(actor,rows):
+    """All-or-nothing import with validation before writes."""
+    import re
+    normalized=[]
+    for name,industry,confidence,source,approved in rows:
+        name=name.strip();industry=industry.strip();source=source.strip()
+        if not 2<=len(name)<=200 or not 2<=len(industry)<=100 or not 3<=len(source)<=500:
+            raise ValueError("Company, industry and evidence source are required")
+        if confidence not in ("low","medium","high"):
+            raise ValueError("Invalid confidence")
+        normalized.append((name,industry,confidence,source,int(approved)))
+    with connection() as db:
+        for name,industry,confidence,source,approved in normalized:
+            previous=db.execute("SELECT approved FROM classifications WHERE company_name=? COLLATE NOCASE",(name,)).fetchone()
+            if previous and previous["approved"] and not approved:
+                raise ValueError("Cannot downgrade approved classification: "+name)
+        for name,industry,confidence,source,approved in normalized:
+            db.execute("""INSERT INTO classifications
+                (company_name,industry,confidence,source,approved,updated_by,updated_at)
+                VALUES (?,?,?,?,?,?,?)
+                ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
+                confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
+                updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
+                (name,industry,confidence,source,approved,actor,int(time.time())))
+        db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
+                   ("classification_excel_import_"+str(len(normalized)),actor,int(time.time())))
+    return len(normalized)
