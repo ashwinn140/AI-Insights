@@ -69,6 +69,7 @@ async def lifespan(app: FastAPI):
     global _database_verified
     _database_verified = verify_restricted_source()
     auth.initialize()
+    auth.ensure_bootstrap_admin_role()
     bootstrap_status = auth.bootstrap_status()
     logger.info('Independent auth bootstrap status: %s', bootstrap_status)
     if bootstrap_status == 'ready' and auth.provision_initial_admin():
@@ -154,6 +155,56 @@ def explorer(company: str | None = None, lob: str | None = None, user=Depends(cu
                 "participants":company_appearances(engine,companies=companies,lobs=lobs)}
     finally:
         engine.dispose()
+
+def require_admin(user=Depends(current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Administrator permission required")
+    return user
+
+@app.get("/api/admin/users")
+def admin_users(user=Depends(require_admin)):
+    return {"users":auth.list_users()}
+
+@app.get("/api/admin/audit")
+def admin_audit(user=Depends(require_admin)):
+    return {"events":auth.audit_events()}
+
+@app.post("/api/admin/users")
+async def admin_create(request: Request, user=Depends(require_admin)):
+    same_origin(request)
+    payload=await request.json()
+    try:
+        if not isinstance(payload,dict):
+            raise ValueError("Invalid input")
+        uid=auth.add_user(user["id"],payload["email"],payload.get("name",""),
+                          payload["password"],payload.get("role","viewer"),
+                          payload["companies"],payload["lobs"])
+        return {"id":uid}
+    except (ValueError,KeyError,TypeError) as exc:
+        raise HTTPException(400,str(exc))
+
+@app.patch("/api/admin/users/{uid}")
+async def admin_update(uid: int, request: Request, user=Depends(require_admin)):
+    same_origin(request)
+    payload=await request.json()
+    try:
+        if not isinstance(payload,dict):
+            raise ValueError("Invalid input")
+        auth.edit_user(user["id"],uid,**{k:payload[k] for k in
+                       ("active","companies","lobs","role") if k in payload})
+        return {"ok":True}
+    except (ValueError,TypeError) as exc:
+        raise HTTPException(400,str(exc))
+
+@app.post("/api/admin/users/{uid}/password")
+async def admin_reset(uid: int, request: Request, user=Depends(require_admin)):
+    same_origin(request)
+    payload=await request.json()
+    try:
+        auth.reset_password(user["id"],uid,payload["password"])
+        return {"ok":True}
+    except (ValueError,KeyError,TypeError) as exc:
+        raise HTTPException(400,str(exc))
 
 @app.get("/api/{path:path}")
 def locked_api(path: str):
