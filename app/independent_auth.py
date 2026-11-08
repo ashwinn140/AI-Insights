@@ -176,8 +176,8 @@ def add_user(actor, email, name, password, role, companies, lobs):
     email = email.strip().lower()
     if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) or len(email)>254:
         raise ValueError("Invalid email")
-    if not 14<=len(password)<=256:
-        raise ValueError("Password must contain 14 to 256 characters")
+    if not 6<=len(password)<=256:
+        raise ValueError("Password must contain 6 to 256 characters")
     if role not in ("admin","viewer","classification_admin"):
         raise ValueError("Invalid role")
     if not companies or not lobs or not set(companies)<=COMPANIES or not set(lobs)<=LOBS:
@@ -221,8 +221,8 @@ def edit_user(actor, uid, active=None, companies=None, lobs=None, role=None):
                    ("user_updated_by_"+str(actor),uid,int(time.time())))
 
 def reset_password(actor, uid, password):
-    if not 14<=len(password)<=256:
-        raise ValueError("Password must contain 14 to 256 characters")
+    if not 6<=len(password)<=256:
+        raise ValueError("Password must contain 6 to 256 characters")
     with connection() as db:
         if not db.execute("SELECT 1 FROM users WHERE id=?",(uid,)).fetchone():
             raise ValueError("User not found")
