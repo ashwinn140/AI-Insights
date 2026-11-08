@@ -208,7 +208,7 @@ def classification_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/classifications.html").read_text()
 
 @app.get("/api/classifications")
-def classifications_api(q: str="",user=Depends(current_user)):
+def classifications_api(q: str="",user=Depends(require_admin)):
     if len(q)>100: raise HTTPException(400,"Search too long")
     return {"results":auth.classification_list(q)}
 
