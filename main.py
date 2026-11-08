@@ -483,7 +483,7 @@ def classification_pending_template(user=Depends(current_user)):
         rows=[{"company_name":name} for name in names if name.casefold() not in classified]
     output=workbook_bytes([("Pending classification",
         ["company_name","industry","confidence","source","country"],
-        [[r["company_name"],"","","",""] for r in rows])])
+        [[r["company_name"],"","","",r.get("country") or ""] for r in rows])])
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
