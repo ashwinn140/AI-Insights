@@ -249,9 +249,8 @@ def classification_xlsx_template(user=Depends(current_user)):
 def classification_xlsx_export(user=Depends(current_user)):
     rows=auth.classification_list(limit=500)
     output=workbook_bytes([("Classifications",
-        ["company_name","industry","confidence","source","approved"],
-        [[r["company_name"],r["industry"],r["confidence"],r["source"],
-          "Yes" if r["approved"] else "No"] for r in rows])])
+        ["company_name","industry","confidence","source","country"],
+        [[r["company_name"],r["industry"],r["confidence"],r["source"],r.get("country","")] for r in rows])])
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-classifications.xlsx",
@@ -483,8 +482,8 @@ def classification_pending_template(user=Depends(current_user)):
             classified={r[0].casefold() for r in db.execute("SELECT company_name FROM classifications")}
         rows=[{"company_name":name} for name in names if name.casefold() not in classified]
     output=workbook_bytes([("Pending classification",
-        ["company_name","industry","confidence","source","approved"],
-        [[r["company_name"],"","","","No"] for r in rows])])
+        ["company_name","industry","confidence","source","country"],
+        [[r["company_name"],"","","",""] for r in rows])])
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
@@ -501,7 +500,7 @@ async def classification_upsert(request: Request,user=Depends(current_user)):
     payload=await request.json()
     try:
         auth.classification_save(user["id"],payload["company_name"],payload["industry"],
-            payload["confidence"],payload["source"],True)
+            payload["confidence"],payload["source"],True,payload.get("country",""))
         return {"ok":True}
     except (ValueError,KeyError,TypeError,AttributeError) as exc:
         raise HTTPException(400,str(exc))
