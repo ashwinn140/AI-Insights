@@ -261,7 +261,7 @@ async def classification_xlsx_import(request:Request,file:UploadFile=File(...),u
     same_origin(request)
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(400,"XLSX file required")
-    payload=await file.read(2*1024*1024+1)
+    payload=await file.read(8*1024*1024+1)
     try:
         rows=parse_classification_xlsx(payload)
         count=auth.classification_import(user["id"],rows)
