@@ -305,8 +305,8 @@ def classification_industry_status():
     with connection() as db:
         industries=[dict(row) for row in db.execute("""
             SELECT industry, COUNT(*) AS total,
-                   SUM(CASE WHEN approved=1 THEN 1 ELSE 0 END) AS approved,
-                   SUM(CASE WHEN approved=0 THEN 1 ELSE 0 END) AS pending
+                   COUNT(*) AS approved,
+                   0 AS pending
             FROM classifications GROUP BY industry ORDER BY total DESC,industry LIMIT 100
         """)]
         total=db.execute("SELECT COUNT(*) FROM classifications").fetchone()[0]
