@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from pathlib import Path
 from app import independent_auth as auth
 from app.industry_explorer import summary, top_trade_lanes, company_appearances
+from app.company_discovery import search_companies, opportunity_candidates
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
@@ -155,6 +156,35 @@ def explorer(company: str | None = None, lob: str | None = None, user=Depends(cu
                 "participants":company_appearances(engine,companies=companies,lobs=lobs)}
     finally:
         engine.dispose()
+
+def scoped_engine():
+    url=URL.create("postgresql+psycopg2", username=os.environ["SHIPMENT_DB_USER"],
+        password=os.environ["SHIPMENT_DB_PASSWORD"],host=os.environ["SHIPMENT_DB_HOST"],
+        port=int(os.environ["SHIPMENT_DB_PORT"]),database=os.environ["SHIPMENT_DB_NAME"])
+    return create_engine(url,pool_pre_ping=True,pool_size=1,max_overflow=0,
+        connect_args={"connect_timeout":5,"options":"-c default_transaction_read_only=on -c statement_timeout=10000"})
+
+def allowed_scope(user,company,lob):
+    if not _database_verified: raise HTTPException(503,"Source not verified")
+    if company and company not in user["companies"]: raise HTTPException(403,"Company not authorized")
+    if lob and lob not in user["lobs"]: raise HTTPException(403,"Department not authorized")
+    return ([company] if company else user["companies"],[lob] if lob else user["lobs"])
+
+@app.get("/api/companies")
+def companies_api(company: str | None=None,lob: str | None=None,q: str="",user=Depends(current_user)):
+    companies,lobs=allowed_scope(user,company,lob)
+    if len(q)>100: raise HTTPException(400,"Search too long")
+    engine=scoped_engine()
+    try: return {"results":search_companies(engine,companies=companies,lobs=lobs,term=q)}
+    finally: engine.dispose()
+
+@app.get("/api/opportunities")
+def opportunities_api(company: str | None=None,lob: str | None=None,user=Depends(current_user)):
+    companies,lobs=allowed_scope(user,company,lob)
+    engine=scoped_engine()
+    try: return {"results":opportunity_candidates(engine,companies=companies,lobs=lobs),
+                 "disclaimer":"Activity-based candidates only. Not verified new prospects or industry classifications."}
+    finally: engine.dispose()
 
 def require_admin(user=Depends(current_user)):
     if user.get("role") != "admin":
