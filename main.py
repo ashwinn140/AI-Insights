@@ -173,6 +173,11 @@ def allowed_scope(user,company,lob):
     if lob and lob not in user["lobs"]: raise HTTPException(403,"Department not authorized")
     return ([company] if company else user["companies"],[lob] if lob else user["lobs"])
 
+def require_admin(user=Depends(current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Administrator permission required")
+    return user
+
 def dashboard_filters(origin=None,destination=None,shipper=None,consignee=None,branch=None,start=None,end=None):
     return dict(origin=origin,destination=destination,shipper=shipper,consignee=consignee,
                 branch=branch,start=start,end=end)
@@ -274,11 +279,6 @@ def opportunities_api(company: str | None=None,lob: str | None=None,user=Depends
     try: return {"results":opportunity_candidates(engine,companies=companies,lobs=lobs),
                  "disclaimer":"Activity-based candidates only. Not verified new prospects or industry classifications."}
     finally: engine.dispose()
-
-def require_admin(user=Depends(current_user)):
-    if user.get("role") != "admin":
-        raise HTTPException(403, "Administrator permission required")
-    return user
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(user=Depends(require_admin)):
