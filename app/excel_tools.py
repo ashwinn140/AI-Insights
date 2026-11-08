@@ -43,7 +43,7 @@ def analytics_export(data):
     return workbook_bytes(sheets)
 
 def parse_classification_xlsx(payload):
-    if len(payload)>2*1024*1024: raise ValueError("Excel file exceeds 2 MB")
+    if len(payload)>8*1024*1024: raise ValueError("Excel file exceeds 8 MB")
     try: wb=load_workbook(BytesIO(payload),read_only=True,data_only=True)
     except Exception: raise ValueError("Invalid XLSX workbook")
     ws=wb.active
@@ -56,7 +56,7 @@ def parse_classification_xlsx(payload):
     country_index=header_names.index("country") if "country" in header_names else None
     rows=[]
     for n,row in enumerate(iterator,2):
-        if n>501: raise ValueError("Maximum 500 rows per import")
+        if n>10001: raise ValueError("Maximum 10,000 rows per import")
         if not any(x is not None for x in row): continue
         if len(row)<4: raise ValueError(f"Row {n}: missing columns")
         name,industry,confidence,source=row[:4]
