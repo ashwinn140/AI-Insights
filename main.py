@@ -352,6 +352,14 @@ async def research_import_api(request:Request,file:UploadFile=File(...),user=Dep
     except ValueError as exc:
         raise HTTPException(400,str(exc))
 
+@app.get("/assets/ui.css")
+def shared_ui_css():
+    return Response(Path(__file__).parent.joinpath("app/ui.css").read_text(),media_type="text/css")
+
+@app.get("/assets/ui.js")
+def shared_ui_js():
+    return Response(Path(__file__).parent.joinpath("app/ui.js").read_text(),media_type="application/javascript")
+
 @app.get("/classifications",response_class=HTMLResponse)
 def classification_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/classifications.html").read_text()
