@@ -48,6 +48,19 @@ def password_valid(password, stored):
     except (ValueError, TypeError):
         return False
 
+def bootstrap_status():
+    """Diagnostic status only: never disclose email, password, or password length."""
+    email = os.getenv("AI_BOOTSTRAP_EMAIL", "").strip().lower()
+    password = os.getenv("AI_BOOTSTRAP_PASSWORD", "")
+    with connection() as db:
+        if db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+            return "existing_account"
+    if not email or "@" not in email:
+        return "missing_or_invalid_bootstrap_email"
+    if len(password) < 14:
+        return "bootstrap_password_below_minimum_14_characters"
+    return "ready"
+
 def provision_initial_admin():
     """One-time bootstrap only, from private Railway variables, never HTTP."""
     email = os.getenv("AI_BOOTSTRAP_EMAIL", "").strip().lower()
