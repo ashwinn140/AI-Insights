@@ -304,6 +304,26 @@ async def classification_upsert(request: Request,user=Depends(require_admin)):
     except (ValueError,KeyError,TypeError,AttributeError) as exc:
         raise HTTPException(400,str(exc))
 
+@app.get("/api/admin/reconciliation")
+def reconciliation(user=Depends(require_admin)):
+    if not _database_verified: raise HTTPException(503,"Source not verified")
+    engine=scoped_engine()
+    try:
+        with engine.connect() as conn:
+            rows=[dict(r) for r in conn.execute(text("""
+                SELECT company,report_type,COUNT(*) AS shipment_rows,
+                       COUNT(DISTINCT key) AS distinct_keys,
+                       COUNT(*) FILTER(WHERE shipment_date IS NULL) AS missing_dates,
+                       COUNT(*) FILTER(WHERE NULLIF(BTRIM(shipper),'') IS NULL) AS missing_shippers,
+                       COUNT(*) FILTER(WHERE NULLIF(BTRIM(consignee),'') IS NULL) AS missing_consignees
+                FROM ai_insights_source.current_shipments
+                WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+                GROUP BY company,report_type ORDER BY company,report_type
+            """),{"companies":user["companies"],"lobs":user["lobs"]}).mappings()]
+        return {"rows":rows,"total":sum(int(x["shipment_rows"]) for x in rows),
+                "status":"Aggregated reconciliation only; independently sourced registers not yet compared"}
+    finally: engine.dispose()
+
 @app.get("/api/admin/users")
 def admin_users(user=Depends(require_admin)):
     return {"users":auth.list_users()}
