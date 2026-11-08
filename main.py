@@ -483,7 +483,8 @@ def classification_pending_template(user=Depends(current_user)):
         rows=[{"company_name":name} for name in names if name.casefold() not in classified]
     output=workbook_bytes([("Pending classification",
         ["company_name","industry","confidence","source","country"],
-        [[r["company_name"],"","","",r.get("country") or ""] for r in rows])])
+        [[r["company_name"],"","","",r.get("country") or ""] for r in rows]),
+        ("AI Prompt",["Instructions"],[["You are a careful B2B freight-forwarding company researcher. Complete ONLY Sheet 1 (Pending classification) in this workbook. For each firm, research the legal or operational country of the named entity, its primary industry vertical, confidence (low/medium/high), and a verifiable source URL or evidence note. Do not infer country from shipment origin/destination, a generic name, or the freight forwarder. Distinguish similarly named entities and subsidiaries by country; where uncertain, leave country or industry blank and set confidence low with a brief explanation in source. Never invent evidence. Preserve company_name exactly, the five column names and their order (company_name, industry, confidence, source, country), and all original rows. Do not add columns to Sheet 1, remove rows, or modify its headers. Leave Sheet 2 unchanged. Output a completed XLSX ready for direct upload to AI Insights; process at most 500 populated rows per upload (split into files of 500). Use concise industry categories and full country names, not ISO codes. A blank country is acceptable if it cannot be verified."]])])
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
