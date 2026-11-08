@@ -32,15 +32,6 @@ def workbook_bytes(sheets):
 def analytics_export(data):
     o=data["overview"]
     sheets=[("Overview",["Metric","Value"],[(k,v) for k,v in o.items()])]
-    for name,columns,keys in [
-        ("Departments",["Company","Department","Shipments"],["company","report_type","shipments"]),
-        ("Trade lanes",["Origin","Destination","Shipments"],["origin","destination","shipments"]),
-        ("Companies",["Role","Company name","Appearances"],["role","name","appearances"]),
-        ("Monthly trend",["Month","Shipments"],["month","shipments"]),
-        ("Branches",["Branch","Shipments"],["branch","shipments"])]:
-        sheets.append((name,columns,[[r.get(k) for k in keys] for r in data[name.lower().replace(" ","_")] if False]))
-    # Explicit dataset names avoid accidental mapping or omitted tabs.
-    sheets=sheets[:1]
     for title,key,columns,fields in [
         ("Departments","breakdown",["Company","Department","Shipments"],["company","report_type","shipments"]),
         ("Trade lanes","lanes",["Origin","Destination","Shipments"],["origin","destination","shipments"]),
