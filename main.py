@@ -203,6 +203,26 @@ def require_admin(user=Depends(current_user)):
 def admin_page(user=Depends(require_admin)):
     return Path(__file__).parent.joinpath("app/admin.html").read_text()
 
+@app.get("/classifications",response_class=HTMLResponse)
+def classification_page(user=Depends(current_user)):
+    return Path(__file__).parent.joinpath("app/classifications.html").read_text()
+
+@app.get("/api/classifications")
+def classifications_api(q: str="",user=Depends(current_user)):
+    if len(q)>100: raise HTTPException(400,"Search too long")
+    return {"results":auth.classification_list(q)}
+
+@app.post("/api/admin/classifications")
+async def classification_upsert(request: Request,user=Depends(require_admin)):
+    same_origin(request)
+    payload=await request.json()
+    try:
+        auth.classification_save(user["id"],payload["company_name"],payload["industry"],
+            payload["confidence"],payload["source"],payload.get("approved",False))
+        return {"ok":True}
+    except (ValueError,KeyError,TypeError,AttributeError) as exc:
+        raise HTTPException(400,str(exc))
+
 @app.get("/api/admin/users")
 def admin_users(user=Depends(require_admin)):
     return {"users":auth.list_users()}
