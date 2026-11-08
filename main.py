@@ -364,6 +364,55 @@ def shared_ui_js():
 def classification_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/classifications.html").read_text()
 
+@app.get("/api/classifications/shipment-trend")
+def classification_shipment_trend(company: str|None=None,lob: str|None=None,
+        start: str|None=None,end: str|None=None,role: str="shipper",
+        user=Depends(current_user)):
+    """Monthly operational shipment rows attributed to approved company industries.
+
+    Each shipment is counted at most once for the selected counterparty role.
+    Classification is an exact normalized company-name match, not inferred.
+    """
+    if role not in ("shipper","consignee"):
+        raise HTTPException(400,"Role must be shipper or consignee")
+    companies,lobs=allowed_scope(user,company,lob)
+    from app.crossfilter import conditions
+    try:
+        where,params=conditions(companies,lobs,{"start":start,"end":end})
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    with auth.connection() as db:
+        classifications=[dict(r) for r in db.execute(
+            "SELECT company_name,industry FROM classifications WHERE approved=1")]
+    import json
+    # JSON recordset avoids exposing the independent SQLite database to PostgreSQL.
+    params["classifications"]=json.dumps(classifications)
+    counterparty="shipper" if role=="shipper" else "consignee"
+    sql=f"""WITH approved AS (
+       SELECT LOWER(BTRIM(company_name)) AS normalized_name, MIN(industry) AS industry
+       FROM jsonb_to_recordset(CAST(:classifications AS jsonb))
+         AS x(company_name text,industry text)
+       GROUP BY LOWER(BTRIM(company_name))
+    ), monthly AS (
+       SELECT DATE_TRUNC('month',s.shipment_date)::date AS month,
+              COALESCE(a.industry,'Unclassified') AS industry,
+              COUNT(*) AS shipments
+       FROM ai_insights_source.current_shipments s
+       LEFT JOIN approved a ON LOWER(BTRIM(s.{counterparty}))=a.normalized_name
+       WHERE {where} AND s.shipment_date IS NOT NULL
+       GROUP BY 1,2
+    )
+    SELECT TO_CHAR(month,'YYYY-MM') AS month,industry,shipments
+    FROM monthly ORDER BY month,shipments DESC,industry"""
+    engine=scoped_engine()
+    try:
+        with engine.connect() as conn:
+            rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
+    finally:
+        engine.dispose()
+    return {"role":role,"rows":rows,"classification_basis":"Approved classifications only; exact normalized counterparty match; shipment rows, not unique jobs.",
+            "total":sum(int(r["shipments"]) for r in rows)}
+
 @app.get("/api/classifications/industry-status")
 def classification_status_api(user=Depends(current_user)):
     return auth.classification_industry_status()
