@@ -170,6 +170,14 @@ def allowed_scope(user,company,lob):
     if lob and lob not in user["lobs"]: raise HTTPException(403,"Department not authorized")
     return ([company] if company else user["companies"],[lob] if lob else user["lobs"])
 
+@app.get("/companies",response_class=HTMLResponse)
+def companies_page(user=Depends(current_user)):
+    return Path(__file__).parent.joinpath("app/discovery.html").read_text()
+
+@app.get("/opportunities",response_class=HTMLResponse)
+def opportunities_page(user=Depends(current_user)):
+    return Path(__file__).parent.joinpath("app/discovery.html").read_text()
+
 @app.get("/api/companies")
 def companies_api(company: str | None=None,lob: str | None=None,q: str="",user=Depends(current_user)):
     companies,lobs=allowed_scope(user,company,lob)
