@@ -265,8 +265,6 @@ async def classification_xlsx_import(request:Request,file:UploadFile=File(...),u
     payload=await file.read(2*1024*1024+1)
     try:
         rows=parse_classification_xlsx(payload)
-        if user.get("role") not in ("admin","classification_admin") and any(row[4] for row in rows):
-            raise HTTPException(403,"Only administrators may approve classifications")
         count=auth.classification_import(user["id"],rows)
         return {"imported":count}
     except ValueError as exc: raise HTTPException(400,str(exc))
@@ -368,7 +366,7 @@ def classification_page(user=Depends(current_user)):
 def classification_shipment_trend(company: str|None=None,lob: str|None=None,
         start: str|None=None,end: str|None=None,role: str="shipper",
         user=Depends(current_user)):
-    """Monthly operational shipment rows attributed to approved company industries.
+    """Monthly operational shipment rows attributed to saved company industries.
 
     Each shipment is counted at most once for the selected counterparty role.
     Classification is an exact normalized company-name match, not inferred.
@@ -383,7 +381,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
         raise HTTPException(400,str(exc))
     with auth.connection() as db:
         classifications=[dict(r) for r in db.execute(
-            "SELECT company_name,industry FROM classifications WHERE approved=1")]
+            "SELECT company_name,industry FROM classifications")]
     import json
     # JSON recordset avoids exposing the independent SQLite database to PostgreSQL.
     params["classifications"]=json.dumps(classifications)
@@ -410,7 +408,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
             rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
     finally:
         engine.dispose()
-    return {"role":role,"rows":rows,"classification_basis":"Approved classifications only; exact normalized counterparty match; shipment rows, not unique jobs.",
+    return {"role":role,"rows":rows,"classification_basis":"Saved classifications; exact normalized counterparty match; shipment rows, not unique jobs.",
             "total":sum(int(r["shipments"]) for r in rows)}
 
 @app.get("/api/classifications/industry-status")
@@ -459,10 +457,8 @@ async def classification_upsert(request: Request,user=Depends(current_user)):
     same_origin(request)
     payload=await request.json()
     try:
-        if payload.get("approved") and user.get("role") not in ("admin","classification_admin"):
-            raise HTTPException(403,"Only administrators may approve classifications")
         auth.classification_save(user["id"],payload["company_name"],payload["industry"],
-            payload["confidence"],payload["source"],payload.get("approved",False))
+            payload["confidence"],payload["source"],True)
         return {"ok":True}
     except (ValueError,KeyError,TypeError,AttributeError) as exc:
         raise HTTPException(400,str(exc))
