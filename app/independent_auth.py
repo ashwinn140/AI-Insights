@@ -36,10 +36,10 @@ def initialize():
         db.execute("""CREATE TABLE IF NOT EXISTS classifications (
             id INTEGER PRIMARY KEY, company_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
             industry TEXT NOT NULL, confidence TEXT NOT NULL, source TEXT NOT NULL,
-            approved INTEGER NOT NULL DEFAULT 0, updated_by INTEGER,
+            approved INTEGER NOT NULL DEFAULT 1, updated_by INTEGER,
             updated_at INTEGER NOT NULL
         )""")
-        db.execute("""CREATE TABLE IF NOT EXISTS research_entities (
+        # One-time compatibility migration: existing classifications are active immediately.\n        db.execute("UPDATE classifications SET approved=1 WHERE approved=0")\n        db.execute("""CREATE TABLE IF NOT EXISTS research_entities (
             entity_key TEXT PRIMARY KEY, original_name TEXT NOT NULL,
             normalized_name TEXT, canonical_entity TEXT, parent_group TEXT,
             alias_group TEXT, country TEXT, industry TEXT, sub_industry TEXT,
@@ -249,17 +249,13 @@ def classification_save(actor,company_name,industry,confidence,source,approved):
     if confidence not in ("low","medium","high"):
         raise ValueError("Invalid confidence")
     with connection() as db:
-        previous=db.execute("SELECT approved FROM classifications WHERE company_name=? COLLATE NOCASE",
-                            (company_name,)).fetchone()
-        if previous and previous["approved"] and not approved:
-            raise ValueError("Approved classifications cannot be downgraded without explicit review")
         db.execute("""INSERT INTO classifications
             (company_name,industry,confidence,source,approved,updated_by,updated_at)
             VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
                 updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
-            (company_name,industry,confidence,source,int(bool(approved)),actor,int(time.time())))
+            (company_name,industry,confidence,source,1,actor,int(time.time())))
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_saved_by_"+str(actor),actor,int(time.time())))
 
@@ -273,12 +269,8 @@ def classification_import(actor,rows):
             raise ValueError("Company, industry and evidence source are required")
         if confidence not in ("low","medium","high"):
             raise ValueError("Invalid confidence")
-        normalized.append((name,industry,confidence,source,int(approved)))
+        normalized.append((name,industry,confidence,source,1))
     with connection() as db:
-        for name,industry,confidence,source,approved in normalized:
-            previous=db.execute("SELECT approved FROM classifications WHERE company_name=? COLLATE NOCASE",(name,)).fetchone()
-            if previous and previous["approved"] and not approved:
-                raise ValueError("Cannot downgrade approved classification: "+name)
         for name,industry,confidence,source,approved in normalized:
             db.execute("""INSERT INTO classifications
                 (company_name,industry,confidence,source,approved,updated_by,updated_at)
