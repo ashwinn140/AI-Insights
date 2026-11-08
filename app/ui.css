@@ -65,3 +65,26 @@
 #shipment-trend tbody tr:hover{background:#1c2c43}
 @media(max-width:850px){.ai-trend-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.ai-trend-filters{grid-template-columns:1fr}.ai-trend-month{grid-template-columns:66px minmax(0,1fr) 60px;gap:6px}}
+
+/* Industry Intelligence: readable ranking and single-industry monthly trend */
+#shipment-trend{max-width:1100px}
+#shipment-trend>h2{font-size:23px;letter-spacing:-.5px}
+#shipment-trend #trend-summary{padding:14px 16px;border:1px solid #375373;background:#142640;border-radius:10px;font-weight:650;color:#e9f2ff}
+#shipment-trend #trend-chart{display:block;max-height:none;overflow:visible;margin:22px 0}
+#shipment-trend #trend-chart>h3{font-size:16px;margin:24px 0 12px}
+.ai-contribution-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px}
+.ai-contribution-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px 10px;align-items:center;text-align:left;padding:12px 14px!important;margin:0!important;background:#101e32!important;border:1px solid #30445f!important;border-radius:9px!important;color:#dce8fa!important;min-width:0}
+.ai-contribution-item>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.ai-contribution-item>strong{font-size:12px;font-variant-numeric:tabular-nums}
+.ai-contribution-item.selected{border-color:#72a9ff!important;background:#203a60!important}
+.ai-contribution-track{grid-column:1/-1;height:7px;background:#24364c;border-radius:5px;overflow:hidden}
+.ai-contribution-track>div{height:100%;background:#6da7fa;border-radius:5px}
+.ai-monthly-chart{display:grid;gap:8px;border:1px solid #30445f;border-radius:11px;padding:16px;background:#0e1a2c;max-height:560px;overflow:auto}
+.ai-monthly-row{display:grid;grid-template-columns:74px minmax(0,1fr) 80px;gap:12px;align-items:center;color:#b9cce5;font-size:12px}
+.ai-monthly-row>strong{text-align:right;font-variant-numeric:tabular-nums;color:#f0f6ff}
+.ai-monthly-track{height:18px;background:#1b2b43;border-radius:4px;overflow:hidden}
+.ai-monthly-fill{height:100%;background:#6aa9fa;border-radius:4px}
+#shipment-trend table{min-width:700px}
+#shipment-trend table th{font-size:12px}
+#shipment-trend table td:nth-child(n+2){font-variant-numeric:tabular-nums}
+@media(max-width:760px){.ai-contribution-list{grid-template-columns:1fr}.ai-monthly-row{grid-template-columns:64px minmax(0,1fr) 60px;gap:7px}}
