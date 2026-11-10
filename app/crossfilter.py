@@ -10,7 +10,7 @@ def conditions(companies,lobs,filters):
     params={"companies":cs,"lobs":ls}
     for key,column in FILTER_COLUMNS.items():
         raw=(filters.get(key) or "").strip()
-        if len(raw)>1500: raise ValueError("Filter exceeds allowed length")
+        if len(raw)>50000: raise ValueError("Filter exceeds allowed length")
         if raw.startswith("j:"):
             import json
             try: values=json.loads(raw[2:])
@@ -20,7 +20,7 @@ def conditions(companies,lobs,filters):
             values=[x.strip() for x in values if x.strip()]
         else:
             values=[x.strip() for x in raw.split(",") if x.strip()]
-        if len(values)>30 or any(len(x)>200 for x in values):
+        if len(values)>250 or any(len(x)>200 for x in values):
             raise ValueError("Too many or too long filter selections")
         if values:
             where.append(f"{column}=ANY(:f_{key})")
