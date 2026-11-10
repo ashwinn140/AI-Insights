@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pathlib import Path
+from urllib.parse import urlsplit
 from io import BytesIO
 from app.crossfilter import query_rows,filter_options
 from app.research_catalog import parse_research,import_research,research_summary,research_list
@@ -87,12 +88,30 @@ app = FastAPI(title="AI Insights Operations", lifespan=lifespan,
 @app.get("/healthz")
 def healthz():
     return {"status": "running", "product": "AI Insights",
-            "data_access": "disabled", "production_ready": False}
+            "data_access": "verified" if _database_verified else "disabled",
+            "production_ready": False}
 
 def same_origin(request: Request):
+    """Reject cross-origin mutations; allow plain HTTP only on loopback hosts."""
     origin = request.headers.get("origin")
     host = request.headers.get("host", "")
-    if not origin or not host or origin not in ("https://" + host, "http://localhost:" + host.rsplit(":",1)[-1]):
+    if not origin or not host:
+        raise HTTPException(403, "Invalid request origin")
+    try:
+        parsed = urlsplit(origin)
+        host_parts = urlsplit("//" + host)
+        host_name = (host_parts.hostname or "").lower()
+        loopback = host_name in ("localhost", "127.0.0.1", "::1")
+        if (parsed.scheme not in ("https", "http")
+                or (parsed.scheme != "https" and not loopback)
+                or (parsed.scheme == "http" and not loopback)
+                or (parsed.hostname or "").lower() != host_name
+                or (parsed.port or (443 if parsed.scheme == "https" else 80))
+                   != (host_parts.port or (443 if parsed.scheme == "https" else 80))
+                or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                or parsed.username is not None or parsed.password is not None):
+            raise HTTPException(403, "Invalid request origin")
+    except ValueError:
         raise HTTPException(403, "Invalid request origin")
 
 def current_user(request: Request):
@@ -254,7 +273,7 @@ def _saved_classification_export_rows():
     # Full saved master, not the 500-row search preview. Export only filled industries.
     with auth.connection() as db:
         return [dict(r) for r in db.execute("""SELECT company_name,industry,confidence,source,country
-            FROM classifications WHERE TRIM(COALESCE(industry,'')) <> ''
+            FROM classifications WHERE approved=1 AND TRIM(COALESCE(industry,'')) <> ''
             ORDER BY company_name COLLATE NOCASE""")]
 
 @app.get("/api/admin/classifications/export")
@@ -274,7 +293,7 @@ def classification_unique_verticals(user=Depends(current_user)):
     with auth.connection() as db:
         rows=db.execute("""SELECT MIN(TRIM(industry)) AS industry,
             COUNT(DISTINCT LOWER(TRIM(company_name))) AS organizations
-            FROM classifications WHERE TRIM(COALESCE(industry,'')) <> ''
+            FROM classifications WHERE approved=1 AND TRIM(COALESCE(industry,'')) <> ''
             GROUP BY LOWER(TRIM(industry)) ORDER BY industry COLLATE NOCASE""").fetchall()
     output=workbook_bytes([("Unique industry verticals",
         ["industry_vertical","classified_organizations"],
@@ -408,7 +427,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
         raise HTTPException(400,str(exc))
     with auth.connection() as db:
         classifications=[dict(r) for r in db.execute(
-            "SELECT company_name,industry FROM classifications")]
+            "SELECT company_name,industry FROM classifications WHERE approved=1")]
     import json
     # JSON recordset avoids exposing the independent SQLite database to PostgreSQL.
     params["classifications"]=json.dumps(classifications)
@@ -450,7 +469,7 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     try: where,params=conditions(companies,lobs,{"start":start,"end":end})
     except ValueError as exc: raise HTTPException(400,str(exc))
     with auth.connection() as db:
-        mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications")]
+        mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications WHERE approved=1")]
     import json
     params["mapping"]=json.dumps(mapping)
     params["industry"]=industry
@@ -551,10 +570,19 @@ async def classification_upsert(request: Request,user=Depends(require_classifica
     payload=await request.json()
     try:
         auth.classification_save(user["id"],payload["company_name"],payload["industry"],
-            payload["confidence"],payload["source"],True,payload.get("country",""))
-        return {"ok":True}
+            payload["confidence"],payload["source"],False,payload.get("country",""))
+        return {"ok":True,"status":"pending_review"}
     except (ValueError,KeyError,TypeError,AttributeError) as exc:
         raise HTTPException(400,str(exc))
+
+@app.post("/api/admin/classifications/{classification_id}/approve")
+def classification_approve(classification_id: int, request: Request, user=Depends(require_admin)):
+    same_origin(request)
+    try:
+        approved=auth.approve_classification(user["id"],classification_id)
+        return {"ok":True,"approved":approved}
+    except ValueError as exc:
+        raise HTTPException(404,str(exc))
 
 @app.get("/api/admin/reconciliation")
 def reconciliation(user=Depends(require_admin)):
