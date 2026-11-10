@@ -516,7 +516,7 @@ def classification_pending_template(user=Depends(current_user)):
     merged={r["company_name"].strip().casefold():{
         "company_name":r["company_name"],"country":r.get("country") or "",
         "research_status":r.get("research_status") or "Pending","appearances":r.get("appearances") or 0,
-        "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":""}
+        "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":"","job_owner_names":""}
         for r in rows if r.get("company_name")}
     companies,lobs=allowed_scope(user,None,None)
     engine=scoped_engine()
@@ -525,7 +525,7 @@ def classification_pending_template(user=Depends(current_user)):
         statement=text("""WITH parties AS (
           SELECT NULLIF(BTRIM(shipper),'') AS company_name,
                  COUNT(*) AS shipper_appearances,0::bigint AS consignee_appearances,
-                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,\n                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
           FROM ai_insights_source.current_shipments
           WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
             AND NULLIF(BTRIM(shipper),'') IS NOT NULL
@@ -541,18 +541,18 @@ def classification_pending_template(user=Depends(current_user)):
         )
         SELECT company_name,SUM(shipper_appearances) AS shipper_appearances,
                SUM(consignee_appearances) AS consignee_appearances,
-               STRING_AGG(DISTINCT salesperson_names,'; ') AS salesperson_names
+               STRING_AGG(DISTINCT salesperson_names,'; ') AS salesperson_names,\n               STRING_AGG(DISTINCT job_owner_names,'; ') AS job_owner_names
         FROM parties GROUP BY company_name ORDER BY company_name LIMIT 20000""")
         with engine.connect() as conn:
             for r in conn.execute(statement,{"companies":companies,"lobs":lobs}).mappings():
                 key=r["company_name"].strip().casefold()
                 item=merged.setdefault(key,{"company_name":r["company_name"],"country":"",
                     "research_status":"Shipment source","appearances":0,
-                    "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":""})
+                    "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":"","job_owner_names":""})
                 item["shipper_appearances"]=int(r["shipper_appearances"] or 0)
                 item["consignee_appearances"]=int(r["consignee_appearances"] or 0)
                 item["appearances"]=max(item["appearances"],item["shipper_appearances"]+item["consignee_appearances"])
-                item["salesperson_names"]=(r["salesperson_names"] or "")[:1000]
+                item["salesperson_names"]=(r["salesperson_names"] or "")[:1000]\n                item["job_owner_names"]=(r["job_owner_names"] or "")[:1000]
     except Exception as exc:
         # Preserve the pending/research workbook, but surface missing source expansion clearly.
         logger.warning("Pending workbook shipment enrichment unavailable (%s)",type(exc).__name__)
@@ -561,9 +561,9 @@ def classification_pending_template(user=Depends(current_user)):
     output=workbook_bytes([
         ("Pending classification",
          ["company_name","industry","confidence","source","country","shipper_appearances",
-          "consignee_appearances","salesperson_names","research_status","total_appearances"],
+          "consignee_appearances","salesperson_names","job_owner_names","research_status","total_appearances"],
          [[r["company_name"],"","","",r.get("country") or "",r.get("shipper_appearances",0),
-           r.get("consignee_appearances",0),r.get("salesperson_names",""),r.get("research_status","Pending"),
+           r.get("consignee_appearances",0),r.get("salesperson_names",""),r.get("job_owner_names",""),r.get("research_status","Pending"),
            r.get("appearances",0)] for r in sorted(merged.values(),key=lambda x:(-int(x.get("appearances") or 0),x["company_name"].casefold()))[:20000]]),
         ("AI Prompt",["Instructions"],[[
           "Complete Sheet 1 only. Preserve every row and every existing column. Fill industry only when supported by credible evidence. "
