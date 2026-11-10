@@ -1,4 +1,4 @@
-"""Import research master as evidence, not machine-learning training or auto-approved truth."""
+"""Import research master as evidence for classification, not machine-learning training or assumed truth."""
 from io import BytesIO
 from datetime import date,datetime
 from openpyxl import load_workbook
