@@ -77,7 +77,7 @@ def parse_classification_xlsx(payload):
             raise ValueError(f"Row {n}: classified rows require text industry, confidence and source")
         if not validate_industry(industry):
             raise ValueError(f"Row {n}: industry must exactly match one of the 15 industry verticals")
-        rows.append((name,industry,confidence.strip().lower(),source,False,country))
+        rows.append((name,industry,confidence.strip().lower(),source,country))
     return rows,skipped
 
 def classification_template():
