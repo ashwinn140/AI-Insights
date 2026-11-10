@@ -534,7 +534,8 @@ def classification_pending_template(user=Depends(current_user)):
           UNION ALL
           SELECT NULLIF(BTRIM(consignee),'') AS company_name,
                  0::bigint AS shipper_appearances,COUNT(*) AS consignee_appearances,
-                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
           FROM ai_insights_source.current_shipments
           WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
             AND NULLIF(BTRIM(consignee),'') IS NOT NULL
