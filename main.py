@@ -791,8 +791,13 @@ def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=
     return {"rows":rows,"basis":"ERP Sales Person source field; job_owner is separate; export attributed to shipper and import to consignee; saved classifications with a valid industry only."}
 
 @app.get("/api/classifications")
-def classifications_api(q: str="",user=Depends(current_user)):
+def classifications_api(q: str="",response: Response=None,user=Depends(current_user)):
     if len(q)>100: raise HTTPException(400,"Search too long")
+    # Classification data changes immediately after Excel import; never serve a stale register.
+    if response is not None:
+        response.headers["Cache-Control"]="no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"]="no-cache"
+        response.headers["Expires"]="0"
     return {"results":auth.classification_list(q,limit=10000)}
 
 @app.post("/api/classifications/save")
