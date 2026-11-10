@@ -32,7 +32,8 @@ class CrossFilterTests(unittest.TestCase):
 
 class ExcelTests(unittest.TestCase):
     def test_template_roundtrip(self):
-        rows=parse_classification_xlsx(classification_template())
+        rows,skipped=parse_classification_xlsx(classification_template())
+        self.assertEqual(skipped,0)
         self.assertEqual(rows[0][0],"Example Company")
         self.assertFalse(rows[0][4])
     def test_export_tabs(self):
