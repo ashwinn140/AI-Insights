@@ -3,6 +3,7 @@ from pathlib import Path
 
 SQL = Path(__file__).resolve().parents[1].joinpath("deployment/03_operational_reconciliation.sql").read_text()
 VIEW = Path(__file__).resolve().parents[1].joinpath("deployment/04_readonly_role_template.sql").read_text()
+MAIN = Path(__file__).resolve().parents[1].joinpath("main.py").read_text()
 
 def test_current_versions_only():
     assert "to_import IS NULL" in SQL
@@ -24,3 +25,9 @@ def test_salesperson_comes_from_erp_sales_person_extra_not_job_owner():
     assert "extra ->> 'Sales Person' AS salesperson" in statement
     assert "job_owner" in statement
     assert "job_owner AS salesperson" not in statement
+
+def test_salesperson_analytics_uses_dedicated_source_field_and_pending_export_context():
+    assert "s.salesperson" in MAIN
+    assert "salesperson_names" in MAIN
+    assert "job_owner_names" in MAIN
+    assert "expanded read-only shipment view is not ready" in MAIN
