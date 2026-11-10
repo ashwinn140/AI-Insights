@@ -252,7 +252,7 @@ def classification_list(term="",limit=200):
             WHERE company_name LIKE ? ORDER BY company_name LIMIT ?""",
             ("%"+term+"%",min(limit,500)))]
 
-def classification_save(actor,company_name,industry,confidence,source,legacy_flag=None,country=""):
+def classification_save(actor,company_name,industry,confidence,source,country=""):
     company_name=company_name.strip()
     industry=industry.strip()
     source=source.strip()
@@ -281,7 +281,9 @@ def classification_import(actor,rows):
     import re
     normalized=[]
     for row in rows:
-        name,industry,confidence,source,approved,*extras=row
+        name,industry,confidence,source,*extras=row
+        # Accept legacy workbook tuples while ignoring their former approval flag.
+        if extras and isinstance(extras[0], bool): extras=extras[1:]
         country=(extras[0] or "").strip() if extras else ""
         if len(country)>100: raise ValueError("Country must be 100 characters or fewer")
         name=name.strip();industry=industry.strip();source=source.strip()
