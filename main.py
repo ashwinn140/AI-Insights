@@ -61,8 +61,20 @@ def verify_restricted_source():
             if not safe:
                 logger.error("Source check: permission policy failed; data access remains disabled")
                 return False
+            required_columns = ["shipper","consignee","carrier","job_owner","salesperson"]
+            available = {r[0] for r in conn.execute(text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema='ai_insights_source'
+                  AND table_name='current_shipments'
+                  AND column_name = ANY(:required_columns)
+            """), {"required_columns":required_columns}).all()}
+            missing = sorted(set(required_columns)-available)
+            if missing:
+                logger.error("Source check: expanded shipment fields missing (%s); data access remains disabled",
+                             ",".join(missing))
+                return False
             count = conn.execute(text("SELECT COUNT(*) FROM ai_insights_source.current_shipments")).scalar_one()
-            logger.info("Source check passed: approved operational view accessible; active_rows=%d; data API disabled", count)
+            logger.info("Source check passed: read-only analytics enabled; active_rows=%d; salesperson and counterparty fields verified", count)
             return True
     except Exception as exc:
         # Never log connection URL, exception details, or credentials.
