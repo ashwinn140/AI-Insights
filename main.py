@@ -578,7 +578,7 @@ def classification_pending_template(user=Depends(current_user)):
         raise HTTPException(503,"The expanded read-only shipment view is not ready. Apply deployment/04_readonly_role_template.sql before downloading the full reclassification workbook.")
     finally:
         engine.dispose()
-    output=workbook_bytes([
+    output=classification_workbook_with_prompt([
         ("Pending classification",
          ["company_name","industry","confidence","source","country","shipper_appearances",
           "consignee_appearances","salesperson_names","job_owner_names","research_status","total_appearances"],
@@ -594,7 +594,7 @@ def classification_pending_template(user=Depends(current_user)):
           "Keep confidence low/medium/high and provide a verifiable source URL or specific evidence note for every classified row. "
           "Do not change company_name or delete unresolved rows.\n\n"+INDUSTRY_PROMPT
         ]])
-    ])
+    ], "Pending classification")
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
