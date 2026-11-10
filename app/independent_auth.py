@@ -317,7 +317,7 @@ def classification_import(actor,rows):
     return imported
 
 def pending_classification_names(limit=50000):
-    """Unclassified research names only; does not invent industries."""
+    """Return research entities plus all reset/pending saved organisations; never invent industries."""
     with connection() as db:
         return [dict(row) for row in db.execute("""
             SELECT company_name,country,research_status,appearances
