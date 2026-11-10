@@ -76,8 +76,8 @@ def parse_classification_xlsx(payload):
         if not all(isinstance(x,str) for x in (industry,confidence,source)):
             raise ValueError(f"Row {n}: classified rows require text industry, confidence and source")
         if not validate_industry(industry):
-            raise ValueError(f"Row {n}: industry must exactly match one of the 15 approved verticals")
-        rows.append((name,industry,confidence.strip().lower(),source,False,country))
+            raise ValueError(f"Row {n}: industry must exactly match one of the 15 industry verticals")
+        rows.append((name,industry,confidence.strip().lower(),source,country))
     return rows,skipped
 
 def classification_template():
@@ -92,7 +92,7 @@ def classification_template():
     master.sheet_state="hidden"
     wb.defined_names.add(DefinedName("IndustryVerticals",attr_text="'Industry Master'!$A$1:$A$15"))
     validation=DataValidation(type="list",formula1="=IndustryVerticals",allow_blank=True)
-    validation.error="Select one of the 15 approved industry verticals."
+    validation.error="Select one of the 15 industry verticals."
     validation.errorTitle="Invalid industry"
     validation.showErrorMessage=True
     ws.add_data_validation(validation)
