@@ -484,7 +484,7 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     if not industry or len(industry)>100: raise HTTPException(400,"Invalid industry")
     companies,lobs=allowed_scope(user,company,lob)
     from app.crossfilter import conditions
-    try: where,params=conditions(companies,lobs,{"start":start,"end":end})
+    try: where,params=conditions(companies,lobs,{"start":start,"end":end,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch})
     except ValueError as exc: raise HTTPException(400,str(exc))
     with auth.connection() as db:
         mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications WHERE TRIM(COALESCE(industry,''))<>''")]
@@ -575,7 +575,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
     )
     SELECT contributor AS organisation,
            CASE WHEN :role='shipper' THEN 'Shipper'
-                WHEN :role='consignee' THEN 'Consignee' ELSE MIN(attributed_role) END AS contributor_role,
+                WHEN :role='consignee' THEN 'Consignee' ELSE CASE WHEN COUNT(DISTINCT attributed_role)=1 THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END END AS contributor_role,
            COUNT(*) AS shipment_rows, COUNT(DISTINCT key) AS distinct_shipments,
            COUNT(DISTINCT related_party) AS distinct_related_parties,
            COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
@@ -624,6 +624,24 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
                 "distinct_shipments_sum":sum(int(r["distinct_shipments"] or 0) for r in rows),
                 "basis":"Shipment rows are counted per attributed organisation. Distinct shipment keys are per organisation and are not additive across organisations."},
             "evidence_basis":"Classification source saved for each organisation; URL links open directly, other notes remain text."}
+
+@app.get("/api/classifications/contributors/export")
+def classification_contributors_export(industry:str,company:str|None=None,lob:str|None=None,
+        start:str|None=None,end:str|None=None,role:str="primary",origin:str|None=None,
+        destination:str|None=None,shipper:str|None=None,consignee:str|None=None,
+        branch:str|None=None,user=Depends(current_user)):
+    data=classification_contributors(industry,company,lob,start,end,role,origin,destination,shipper,consignee,branch,user)
+    rows=data["rows"]; records=data["records"]; summary=data["record_summary"]
+    output=workbook_bytes([
+      ("Calculation",["Metric","Value"],[[k,v] for k,v in summary.items()]+[[k,v] for k,v in data["calculation"].items()]),
+      ("Contributors",["Organisation","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
+       [[r.get(k) for k in ["organisation","contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for r in rows]),
+      ("Shipment records",["Shipment key","Shipment date","Company","Department","Shipper","Consignee","Origin","Destination","Branch","ERP Sales Person","Job owner","Evidence","Confidence"],
+       [[r.get(k) for k in ["shipment_key","shipment_date","company","report_type","shipper","consignee","origin","destination","branch","salesperson","job_owner","evidence","confidence"]] for r in records]),
+      ("Applied filters",["Filter","Value"],[[k,v] for k,v in {"industry":industry,"company":company,"department":lob,"role":role,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch,"start":start,"end":end}.items() if v])
+    ])
+    return StreamingResponse(BytesIO(output),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+       headers={"Content-Disposition":"attachment; filename=ai-insights-industry-contributor-records.xlsx","Cache-Control":"no-store"})
 
 @app.get("/api/classifications/industry-status")
 def classification_status_api(user=Depends(current_user)):
