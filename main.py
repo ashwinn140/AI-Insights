@@ -580,6 +580,10 @@ def classification_pending_template(user=Depends(current_user)):
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
                  "Cache-Control":"no-store"})
 
+@app.get("/api/admin/classifications/reset-preview")
+def classifications_reset_preview(user=Depends(require_admin)):
+    return auth.classification_reset_preview()
+
 @app.post("/api/admin/classifications/reset-for-reclassification")
 async def classifications_reset_for_reclassification(request:Request,user=Depends(require_admin)):
     same_origin(request)
