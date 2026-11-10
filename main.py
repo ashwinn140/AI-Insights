@@ -662,7 +662,7 @@ async def classification_upsert(request: Request,user=Depends(require_classifica
     payload=await request.json()
     try:
         auth.classification_save(user["id"],payload["company_name"],payload["industry"],
-            payload["confidence"],payload["source"],False,payload.get("country",""))
+            payload["confidence"],payload["source"],payload.get("country",""))
         return {"ok":True,"status":"classified"}
     except (ValueError,KeyError,TypeError,AttributeError) as exc:
         raise HTTPException(400,str(exc))
