@@ -525,7 +525,8 @@ def classification_pending_template(user=Depends(current_user)):
         statement=text("""WITH parties AS (
           SELECT NULLIF(BTRIM(shipper),'') AS company_name,
                  COUNT(*) AS shipper_appearances,0::bigint AS consignee_appearances,
-                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,\n                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
           FROM ai_insights_source.current_shipments
           WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
             AND NULLIF(BTRIM(shipper),'') IS NOT NULL
@@ -541,7 +542,8 @@ def classification_pending_template(user=Depends(current_user)):
         )
         SELECT company_name,SUM(shipper_appearances) AS shipper_appearances,
                SUM(consignee_appearances) AS consignee_appearances,
-               STRING_AGG(DISTINCT salesperson_names,'; ') AS salesperson_names,\n               STRING_AGG(DISTINCT job_owner_names,'; ') AS job_owner_names
+               STRING_AGG(DISTINCT salesperson_names,'; ') AS salesperson_names,
+               STRING_AGG(DISTINCT job_owner_names,'; ') AS job_owner_names
         FROM parties GROUP BY company_name ORDER BY company_name LIMIT 20000""")
         with engine.connect() as conn:
             for r in conn.execute(statement,{"companies":companies,"lobs":lobs}).mappings():
@@ -552,7 +554,8 @@ def classification_pending_template(user=Depends(current_user)):
                 item["shipper_appearances"]=int(r["shipper_appearances"] or 0)
                 item["consignee_appearances"]=int(r["consignee_appearances"] or 0)
                 item["appearances"]=max(item["appearances"],item["shipper_appearances"]+item["consignee_appearances"])
-                item["salesperson_names"]=(r["salesperson_names"] or "")[:1000]\n                item["job_owner_names"]=(r["job_owner_names"] or "")[:1000]
+                item["salesperson_names"]=(r["salesperson_names"] or "")[:1000]
+                item["job_owner_names"]=(r["job_owner_names"] or "")[:1000]
     except Exception as exc:
         # Preserve the pending/research workbook, but surface missing source expansion clearly.
         logger.warning("Pending workbook shipment enrichment unavailable (%s)",type(exc).__name__)
