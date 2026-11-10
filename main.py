@@ -691,8 +691,7 @@ def classification_pending_template(user=Depends(current_user)):
         if not item["country"] and row.get("country"):
             item["country"]=row["country"]
         item["appearances"]=max(item["appearances"],int(row.get("appearances") or 0))
-    # Add shipment counterparties only when available; the workbook itself stays
-    # limited to the five agreed columns. Do not require salesperson/job-owner extras.
+    # Discover authorised shipment counterparties without exposing extra columns.
     companies,lobs=allowed_scope(user,None,None)
     engine=scoped_engine()
     try:
