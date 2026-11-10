@@ -103,7 +103,7 @@ def classification_workbook_with_prompt(sheets, import_sheet_title):
     if "AI Prompt" not in wb.sheetnames:
         ws=wb.create_sheet("AI Prompt", 1)
         ws.append(["Instructions"])
-        ws.append(["Complete Sheet 1 only. Preserve every organisation and every column. Use only the exact 15 industry verticals. Use company-specific evidence; shipper/consignee appearances and salesperson/job-owner context are clues, not proof. Leave uncertain industries blank. Include a verifiable URL or specific evidence note for every classified row. Do not copy this prompt elsewhere.\n\n"+INDUSTRY_PROMPT])
+        ws.append(["Follow the provider-neutral classification instructions below. Edit only industry, confidence and source in the first worksheet. Preserve company_name, country, row order, all rows and the five-column format. Leave uncertain or out-of-scope industries blank and explain why in source.\n\n"+INDUSTRY_PROMPT])
         ws.column_dimensions["A"].width=120
         ws["A1"].font=Font(bold=True,color="FFFFFF")
         ws["A1"].fill=PatternFill("solid",fgColor="193557")
