@@ -1,6 +1,0 @@
-.env
-*.db
-*.sqlite
-*.xlsx
-__pycache__/
-.pytest_cache/
