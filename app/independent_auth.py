@@ -352,6 +352,22 @@ def pending_classification_names(limit=50000):
             LIMIT ?
         """,(min(max(int(limit),1),50000),))]
 
+
+def classification_rows_for_workbook(limit=50000):
+    """Return all saved organisations with their latest persisted classification."""
+    with connection() as db:
+        return [dict(row) for row in db.execute("""
+            SELECT c.company_name,c.industry,c.country,c.confidence,c.source,
+                   COALESCE(r.appearances,0) AS appearances,
+                   COALESCE(r.verification_status,'Saved classification') AS research_status
+            FROM classifications c
+            LEFT JOIN research_entities r
+              ON r.original_name = c.company_name COLLATE NOCASE
+            ORDER BY COALESCE(r.appearances,0) DESC,c.company_name COLLATE NOCASE
+            LIMIT ?
+        """,(min(max(int(limit),1),50000),))]
+
+
 def classification_industry_status():
     with connection() as db:
         industries=[dict(row) for row in db.execute("""
