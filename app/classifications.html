@@ -21,11 +21,11 @@ themeToggle?.addEventListener('click',()=>{const next=document.body.classList.co
 async function verticalDetail(){
  const name=selectedTrendIndustry;if(!name)return;
  $('vertical-title').textContent=name+' — vertical performance';
- $('vertical-note').textContent='Loading authorized shipment drilldown…';
+ $('vertical-note').classList.add('is-loading');$('vertical-note').textContent='Loading authorized shipment drilldown…';
  const params=trendParams($('trend-start').value,$('trend-end').value);params.set('industry',name);
  try{
  const r=await api('/api/classifications/vertical-performance?'+params),d=r.data,overview=d.overview[0];
- $('vertical-note').textContent='Operational shipment contribution · '+(overview.first_date||'No date')+' to '+(overview.last_date||'No date');
+ $('vertical-note').classList.remove('is-loading');$('vertical-note').textContent='Operational shipment contribution · '+(overview.first_date||'No date')+' to '+(overview.last_date||'No date');
  const k=$('vertical-kpis');k.replaceChildren();
  for(const [label,value] of [['Shipment rows',overview.shipment_rows],['Distinct keys',overview.distinct_keys],['TEUs',Number(overview.teus||0).toFixed(1)],['Gross weight',Number(overview.gross_weight||0).toFixed(1)]]){const card=document.createElement('div');card.className='ai-insight-kpi';const a=document.createElement('span');a.textContent=label;const b=document.createElement('strong');b.textContent=Number(value||0).toLocaleString('en-IN');card.append(a,b);k.append(card)}
  const insights=$('vertical-insights');insights.replaceChildren();
@@ -183,7 +183,7 @@ async function shipmentTrend(){
  for(const item of ranked){const now=item.values.get(last)||0,prior=previous===null?null:item.values.get(previous)||0;
   const change=prior===null?'—':prior===0?(now?'New':'0%'):((now-prior)/prior*100).toFixed(1)+'%';
   const tr=document.createElement('tr');for(const value of [item.name,fmt(item.total),share(item.total),prior===null?'—':fmt(prior),fmt(now),change]){const td=document.createElement('td');td.textContent=value;tr.append(td)}
-  tr.style.cursor='pointer';tr.onclick=()=>{selectedTrendIndustry=item.name;drawContribution();drawTrend();verticalDetail()};table.append(tr)}
+  tr.style.cursor='pointer';tr.onclick=()=>{selectedTrendIndustry=item.name;drawContribution();drawTrend();verticalDetail();contributorRecords()};table.append(tr)}
  }catch(e){chart.replaceChildren();table.replaceChildren();summary.textContent='Industry insights unavailable: '+e.message}
 }
 async function refreshIndustryViews(){contributorFilterOptions();shipmentTrend();salespersonIndustry();if(selectedTrendIndustry)contributorRecords()}
@@ -244,7 +244,7 @@ uploadForm.addEventListener('submit',async e=>{
  if(file.size>20*1024*1024){uploadMessage('The workbook exceeds the 20 MB upload limit.','error');return}
  const originalLabel=uploadButton.textContent;
  uploadButton.disabled=true;uploadButton.textContent='Uploading…';
- uploadMessage('Uploading '+file.name+'… Please keep this page open.','busy');
+ uploadMessage('◌ Uploading '+file.name+'… Please keep this page open.','busy');
  try{
   const body=new FormData();body.append('file',file,file.name);
   const response=await fetch('/api/classifications/import',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'},body});
