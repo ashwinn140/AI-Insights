@@ -100,11 +100,18 @@ def classification_workbook_with_prompt(sheets, import_sheet_title):
     if prompt.max_row>=2:
         prompt["A2"].alignment=Alignment(wrap_text=True,vertical="top")
         prompt.row_dimensions[2].height=420
-    if "Industry Master" in wb.sheetnames: del wb["Industry Master"]
-    master=wb.create_sheet("Industry Master")
-    for label in INDUSTRY_VERTICALS: master.append([label])
-    master.sheet_state="hidden"
-    wb.defined_names.add(DefinedName("IndustryVerticals",attr_text="'Industry Master'!$A$1:$A$15"))
+    # Keep the workbook to exactly two visible sheets. Store the dropdown
+    # source on Sheet 2 (AI Prompt), not in a redundant third worksheet.
+    for name in list(wb.sheetnames):
+        if name != import_sheet_title and name != "AI Prompt":
+            del wb[name]
+    prompt["B1"]="Industry master (exact allowed values)"
+    prompt["B1"].font=Font(bold=True,color="FFFFFF")
+    prompt["B1"].fill=PatternFill("solid",fgColor="193557")
+    prompt.column_dimensions["B"].width=48
+    for row,label in enumerate(INDUSTRY_VERTICALS,2):
+        prompt.cell(row=row,column=2,value=label)
+    wb.defined_names.add(DefinedName("IndustryVerticals",attr_text="'AI Prompt'!$B$2:$B$16"))
     ws=wb[import_sheet_title]
     validation=DataValidation(type="list",formula1="=IndustryVerticals",allow_blank=True)
     validation.error="Select one of the 15 industry verticals."
