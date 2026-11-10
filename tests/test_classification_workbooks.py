@@ -29,5 +29,34 @@ class ClassificationWorkbookTests(unittest.TestCase):
         self.assertEqual(rows[0][1], INDUSTRY_VERTICALS[0])
 
 
+    def test_compact_five_column_import_requires_confidence_and_evidence(self):
+        from io import BytesIO
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Pending classification"
+        ws.append(["company_name", "industry", "confidence", "source", "country"])
+        ws.append(["Classified Co", INDUSTRY_VERTICALS[0], "HIGH", "https://example.com/company", "India"])
+        ws.append(["Pending Co", "", "", "Awaiting evidence", "UAE"])
+        out = BytesIO()
+        wb.save(out)
+        rows, skipped = parse_classification_xlsx(out.getvalue())
+        self.assertEqual(skipped, 1)
+        self.assertEqual(rows, [("Classified Co", INDUSTRY_VERTICALS[0], "high", "https://example.com/company", "India")])
+
+    def test_import_rejects_extra_columns_or_wrong_sheet(self):
+        from io import BytesIO
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Classification import"
+        ws.append(["company_name", "industry", "confidence", "source", "country"])
+        out = BytesIO()
+        wb.save(out)
+        with self.assertRaisesRegex(ValueError, "Pending classification"):
+            parse_classification_xlsx(out.getvalue())
+
+
+
 if __name__ == "__main__":
     unittest.main()
