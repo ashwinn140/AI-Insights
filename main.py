@@ -201,6 +201,33 @@ def scoped_engine():
     return create_engine(url,pool_pre_ping=True,pool_size=1,max_overflow=0,
         connect_args={"connect_timeout":5,"options":"-c default_transaction_read_only=on -c statement_timeout=10000"})
 
+def classification_mapping(industry=None, include_evidence=False):
+    """Return only unambiguous saved mappings, optionally scoped to one vertical.
+
+    The independent classification store is SQLite while shipment analytics is
+    PostgreSQL. Keep this bridge payload minimal and never send evidence text for
+    trend/drilldown joins.
+    """
+    fields = """MIN(c.company_name) AS company_name, MIN(c.industry) AS industry"""
+    if include_evidence:
+        fields += """, MIN(c.country) AS country,
+            MIN(c.confidence) AS confidence, MIN(c.source) AS source"""
+    sql = f"""SELECT {fields}
+        FROM classifications c
+        WHERE TRIM(COALESCE(c.industry,''))<>''
+          AND TRIM(COALESCE(c.company_name,''))<>''
+          AND (:industry IS NULL OR TRIM(c.industry)=:industry)
+          AND NOT EXISTS (
+            SELECT 1 FROM classifications other
+            WHERE LOWER(TRIM(other.company_name))=LOWER(TRIM(c.company_name))
+              AND TRIM(COALESCE(other.industry,''))<>''
+              AND other.industry<>c.industry
+          )
+        GROUP BY LOWER(TRIM(c.company_name))"""
+    with auth.connection() as db:
+        return [dict(row) for row in db.execute(sql, {"industry": industry})]
+
+
 def allowed_scope(user,company,lob):
     if not _database_verified: raise HTTPException(503,"Source not verified")
     def parse(raw,authorized):
@@ -453,12 +480,11 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
         where,params=conditions(companies,lobs,{"start":start,"end":end,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch})
     except ValueError as exc:
         raise HTTPException(400,str(exc))
-    with auth.connection() as db:
-        classifications=[dict(r) for r in db.execute(
-            "SELECT company_name,industry FROM classifications WHERE TRIM(COALESCE(industry,''))<>''")]
+    # Send only compact, unambiguous company/industry pairs across the
+    # SQLite-to-PostgreSQL boundary; never ship the full evidence register.
+    classifications=classification_mapping()
     import json
-    # JSON recordset avoids exposing the independent SQLite database to PostgreSQL.
-    params["classifications"]=json.dumps(classifications)
+    params["classifications"]=json.dumps(classifications,separators=(",",":"))
     counterparty=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     sql=f"""WITH industry_map AS (
        SELECT LOWER(BTRIM(company_name)) AS normalized_name,
@@ -497,10 +523,11 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     from app.crossfilter import conditions
     try: where,params=conditions(companies,lobs,{"start":start,"end":end,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch})
     except ValueError as exc: raise HTTPException(400,str(exc))
-    with auth.connection() as db:
-        mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications WHERE TRIM(COALESCE(industry,''))<>''")]
+    # The selected vertical is the only mapping needed for this drilldown.
+    # Unclassified remains supported by using the complete compact map.
+    mapping=classification_mapping(None if industry=="Unclassified" else industry)
     import json
-    params["mapping"]=json.dumps(mapping)
+    params["mapping"]=json.dumps(mapping,separators=(",",":"))
     params["industry"]=industry
     field=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     base=f"""WITH industry_map AS (
@@ -571,20 +598,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
         # request; on production this produced a ~384 KB JSON mapping and caused
         # the PostgreSQL statement timeout. The correlated check still excludes
         # names mapped to multiple industries, without shipping unrelated rows.
-        mapping=[dict(r) for r in db.execute("""SELECT
-                MIN(c.company_name) AS company_name,
-                MIN(c.industry) AS industry,MIN(c.country) AS country,
-                MIN(c.confidence) AS confidence,MIN(c.source) AS source
-            FROM classifications c
-            WHERE TRIM(COALESCE(c.industry,''))=?
-              AND TRIM(COALESCE(c.company_name,''))<>''
-              AND NOT EXISTS (
-                SELECT 1 FROM classifications other
-                WHERE LOWER(TRIM(other.company_name))=LOWER(TRIM(c.company_name))
-                  AND TRIM(COALESCE(other.industry,''))<>''
-                  AND other.industry<>c.industry
-              )
-            GROUP BY LOWER(TRIM(c.company_name))""",(industry,))]
+        mapping=classification_mapping(industry, include_evidence=True)
     import json
     params["mapping"]=json.dumps(mapping); params["industry"]=industry; params["role"]=role; params["limit"]=min(max(int(limit),1),50000); params["offset"]=max(int(offset),0); params["record_limit"]=min(max(int(record_limit),1),50000); params["record_offset"]=max(int(record_offset),0)
     party=("CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END"
