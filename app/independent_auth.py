@@ -386,6 +386,13 @@ def classification_history_count():
     with connection() as db:
         return db.execute("SELECT COUNT(*) FROM classification_history").fetchone()[0]
 
+def classification_reset_preview():
+    with connection() as db:
+        total=db.execute("SELECT COUNT(*) FROM classifications").fetchone()[0]
+        approved=db.execute("SELECT COUNT(*) FROM classifications WHERE approved=1").fetchone()[0]
+        pending=db.execute("SELECT COUNT(*) FROM classifications WHERE approved=0 OR TRIM(COALESCE(industry,''))=''").fetchone()[0]
+    return {"total":total,"approved":approved,"already_pending":pending}
+
 def approve_classification(actor, classification_id):
     """Explicit administrator review; approval is recorded with an audit identity."""
     now=int(time.time())
