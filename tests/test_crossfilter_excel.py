@@ -35,6 +35,7 @@ class ExcelTests(unittest.TestCase):
         rows,skipped=parse_classification_xlsx(classification_template())
         self.assertEqual(skipped,0)
         self.assertEqual(rows[0][0],"Example Company")
+        self.assertEqual(rows[0][1],"Automotive & Auto Components")
         self.assertFalse(rows[0][4])
     def test_export_tabs(self):
         data={"overview":{"shipments":1,"shippers":1,"consignees":1,"teus":0,"gross_weight":0},
