@@ -252,7 +252,7 @@ def classification_list(term="",limit=200):
             WHERE company_name LIKE ? ORDER BY company_name LIMIT ?""",
             ("%"+term+"%",min(limit,500)))]
 
-def classification_save(actor,company_name,industry,confidence,source,approved=False,country=""):
+def classification_save(actor,company_name,industry,confidence,source,legacy_flag=None,country=""):
     company_name=company_name.strip()
     industry=industry.strip()
     source=source.strip()
@@ -261,7 +261,7 @@ def classification_save(actor,company_name,industry,confidence,source,approved=F
     if not 2<=len(company_name)<=200 or not 3<=len(source)<=500:
         raise ValueError("Company name and evidence source are required")
     if not validate_industry(industry):
-        raise ValueError("Industry must match one of the 15 approved verticals exactly")
+        raise ValueError("Industry must match one of the 15 defined verticals exactly")
     if confidence not in ("low","medium","high"):
         raise ValueError("Invalid confidence")
     with connection() as db:
@@ -288,7 +288,7 @@ def classification_import(actor,rows):
         if not 2<=len(name)<=200 or not 3<=len(source)<=500:
             raise ValueError("Company name and evidence source are required")
         if not validate_industry(industry):
-            raise ValueError(f"Invalid industry vertical for {name}: choose one of the 15 approved labels")
+            raise ValueError(f"Invalid industry vertical for {name}: choose one of the 15 defined labels")
         if confidence not in ("low","medium","high"):
             raise ValueError("Invalid confidence")
         normalized.append((name,industry,confidence,source,0,country))
@@ -302,11 +302,7 @@ def classification_import(actor,rows):
                 country=CASE WHEN excluded.country <> '' THEN excluded.country ELSE classifications.country END,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
                 updated_by=excluded.updated_by,updated_at=excluded.updated_at
-                WHERE classifications.approved=0
-                  AND CASE classifications.confidence
-                    WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END
-                    <= CASE excluded.confidence
-                    WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END""",
+                """,
                 (name,industry,country,confidence,source,1,actor,int(time.time())))
             imported += max(cursor.rowcount,0)
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
@@ -342,11 +338,11 @@ def classification_industry_status():
             FROM classifications WHERE TRIM(COALESCE(industry,''))<>'' GROUP BY industry ORDER BY total DESC,industry LIMIT 100
         """)]
         total=db.execute("SELECT COUNT(*) FROM classifications WHERE TRIM(COALESCE(industry,''))<>''").fetchone()[0]
-        pending_review=db.execute("SELECT COUNT(*) FROM classifications WHERE TRIM(COALESCE(industry,''))=''").fetchone()[0]
+        pending_classification=db.execute("SELECT COUNT(*) FROM classifications WHERE TRIM(COALESCE(industry,''))=''").fetchone()[0]
         pending=db.execute("""SELECT COUNT(*) FROM research_entities r
             WHERE NOT EXISTS (SELECT 1 FROM classifications c
             WHERE c.company_name=r.original_name COLLATE NOCASE)""").fetchone()[0]
-    return {"industries":industries,"classified":total,"pending_classification":pending_review,
+    return {"industries":industries,"classified":total,"pending_classification":pending_classification,
             "research_pending":pending}
 
 
