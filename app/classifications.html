@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI Insights | Classification</title><style>body{font:15px system-ui;background:#0b1220;color:#e6edf8;max-width:1150px;margin:30px auto;padding:0 22px}a{color:#93c5fd}.muted{color:#a6b8d0}.panel{background:#172236;border:1px solid #35465e;padding:24px;border-radius:14px;margin:22px 0}input,select{background:#0c1829;color:white;border:1px solid #435773;border-radius:8px;padding:11px;width:100%;box-sizing:border-box}label{display:grid;gap:7px;font-size:13px}.fields{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}button{background:#2563eb;color:white;border:0;border-radius:8px;padding:12px 20px;cursor:pointer;margin-top:12px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px;text-align:left;border-bottom:1px solid #35445c}th{color:#a7b9d1}#error{color:#fca5a5}@media(max-width:700px){.fields{grid-template-columns:1fr}.panel{overflow:auto}}</style><style>.ai-start{margin:18px 0 20px;padding:20px;border:1px solid #395270;border-radius:14px;background:#14243a}.ai-start h2{margin:0 0 15px;font-size:20px}.ai-start-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ai-task{display:flex;flex-direction:column;gap:7px;text-decoration:none!important;color:#eaf3ff!important;background:#1c3049;border:1px solid #45617f;border-radius:10px;padding:17px;min-height:64px}.ai-task:hover{background:#25405d;border-color:#91baff}.ai-task:focus-visible,.ai-jump a:focus-visible{outline:3px solid #f9cc70;outline-offset:3px}.ai-task span{color:#b9cce0;font-size:13px;line-height:1.45}.ai-start-note{margin-bottom:0}.ai-jump{display:flex;gap:9px;flex-wrap:wrap;position:sticky;top:0;z-index:5;padding:10px 0;background:#0b1220}.ai-jump a{display:inline-flex;align-items:center;min-height:34px;padding:5px 12px;background:#21324a;border:1px solid #425b7a;border-radius:20px;text-decoration:none;color:#e6edf8}#register,#editor,#excelpanel,#industry-status,#shipment-trend{scroll-margin-top:75px}@media(max-width:650px){.ai-start-grid{grid-template-columns:1fr}.ai-start{padding:15px}.ai-jump{position:static}}</style><style>
 .beta-tag{display:inline-block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:3px 7px;border:1px solid #d6a84b;border-radius:12px;color:#f4cf7b;vertical-align:middle;margin-left:6px}
-.ai-trend-filters select[multiple]{min-height:86px}.ai-trend-filters select[multiple] option{padding:3px}.pager{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}.pager button{margin-top:0}.download-link{color:#93c5fd;font-weight:600}
+.ai-trend-filters select[multiple]{min-height:86px}.ai-trend-filters label:has(select[multiple])::after{content:'(Select multiple; Ctrl/Cmd-click)';display:block;font-size:11px;color:#91a5c0;margin-top:3px}.is-loading{position:relative;padding-left:26px!important}.is-loading:before{content:'';position:absolute;left:2px;top:50%;width:14px;height:14px;margin-top:-8px;border:2px solid #7894b8;border-top-color:transparent;border-radius:50%;animation:ai-spin .7s linear infinite}@keyframes ai-spin{to{transform:rotate(360deg)}}.ai-trend-filters select[multiple] option{padding:3px}.pager{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}.pager button{margin-top:0}.download-link{color:#93c5fd;font-weight:600}
 body.light-theme{background:#f4f7fb!important;color:#17243a!important}
 body.light-theme .panel,body.light-theme .ai-start{background:#fff!important;color:#17243a!important;border-color:#cbd5e1!important}
 body.light-theme nav.ai-jump{background:#f4f7fb!important}
@@ -97,20 +97,20 @@ function renderShipmentRows(rows){
 async function loadContributorPage(){
  const summary=$('contributor-summary'),note=$('contributor-note');
  if(!selectedTrendIndustry){summary.textContent='Select an industry above to inspect its contributors.';renderContributorRows([]);renderShipmentRows([]);$('contributor-chart').replaceChildren();return}
- summary.textContent='Loading contributor summary…';note.textContent='Loading 10 contributor organisations and 10 shipment records…';
+ summary.textContent='Loading contributor summary…';summary.classList.add('is-loading');note.textContent='Loading 10 contributor organisations and 10 shipment records…';
  const params=trendParams($('trend-start').value,$('trend-end').value);params.set('industry',selectedTrendIndustry);
  params.set('limit','10');params.set('offset',String(contributorPage*10));params.set('record_limit','10');params.set('record_offset',String(shipmentRecordPage*10));
  try{
   const data=await api('/api/classifications/contributors?'+params);
   contributorTotal=Number(data.contributor_total||0);shipmentRecordTotal=Number(data.record_total||0);
   const rs=data.record_summary||{},calc=data.calculation||{};
-  summary.textContent=selectedTrendIndustry+' · '+contributorTotal.toLocaleString('en-IN')+' organisations · '+Number(rs.shipment_rows||0).toLocaleString('en-IN')+' shipment rows · '+Number(rs.distinct_shipments||0).toLocaleString('en-IN')+' distinct shipments · '+Number(rs.teus||0).toLocaleString('en-IN')+' TEUs · '+Number(rs.gross_weight||0).toLocaleString('en-IN')+' gross weight';
+  summary.classList.remove('is-loading');summary.textContent=selectedTrendIndustry+' · '+contributorTotal.toLocaleString('en-IN')+' organisations · '+Number(rs.shipment_rows||0).toLocaleString('en-IN')+' shipment rows · '+Number(rs.distinct_shipments||0).toLocaleString('en-IN')+' distinct shipments · '+Number(rs.teus||0).toLocaleString('en-IN')+' TEUs · '+Number(rs.gross_weight||0).toLocaleString('en-IN')+' gross weight';
   renderContributorRows(data.rows||[]);renderShipmentRows(data.records||[]);
   if(contributorPage===0)renderContributorChart(data.rows||[]);
   setPager('contrib',contributorPage,contributorTotal);setPager('records',shipmentRecordPage,shipmentRecordTotal);
   note.textContent='Only 10 rows are loaded per page. Download the Excel workbook for the complete filtered contributor list and shipment records.';
   if(!contributorTotal)note.textContent='No classified organisations contributed shipment rows for this vertical under the selected filters.';
- }catch(e){summary.textContent='Contributor data could not be loaded: '+e.message;note.textContent='Try adjusting the filters or download again later.'}
+ }catch(e){summary.classList.remove('is-loading');summary.textContent='Contributor data could not be loaded: '+e.message;note.textContent='Try adjusting the filters or download again later.'}
 }
 $('contrib-prev').onclick=()=>{if(contributorPage>0){contributorPage--;loadContributorPage()}};
 $('contrib-next').onclick=()=>{if((contributorPage+1)*10<contributorTotal){contributorPage++;loadContributorPage()}};
@@ -133,7 +133,7 @@ async function contributorFilterOptions(){
 async function shipmentTrend(){
  const chart=$('trend-chart'),table=$('trend-table'),summary=$('trend-summary');
  try{
- summary.textContent='Loading industry insights…';
+ summary.textContent='Loading industry insights…';summary.classList.add('is-loading');
  const params=trendParams($('trend-start').value,$('trend-end').value)
  const d=await api('/api/classifications/shipment-trend?'+params);
  const months=[...new Set(d.rows.map(r=>r.month))].sort(),byIndustry=new Map();
@@ -141,7 +141,7 @@ async function shipmentTrend(){
  const ranked=[...byIndustry].map(([name,values])=>({name,values,total:[...values.values()].reduce((a,b)=>a+b,0)})).sort((a,b)=>b.total-a.total);
  const total=ranked.reduce((a,b)=>a+b.total,0),unclassified=ranked.find(x=>x.name==='Unclassified')?.total||0;
  const fmt=n=>Number(n||0).toLocaleString('en-IN'),share=n=>total?(100*n/total).toFixed(1)+'%':'0%';
- compareTrendPeriods();summary.textContent=fmt(total)+' shipment rows · '+months.length+' months · '+share(total-unclassified)+' classified · '+fmt(unclassified)+' unclassified';
+ compareTrendPeriods();summary.classList.remove('is-loading');summary.textContent=fmt(total)+' shipment rows · '+months.length+' months · '+share(total-unclassified)+' classified · '+fmt(unclassified)+' unclassified';
  const kpis=$('trend-kpis');kpis.replaceChildren();
  const lastMonth=months[months.length-1],prevMonth=months.length>1?months[months.length-2]:null;
  const currentTotal=lastMonth?ranked.reduce((n,x)=>n+(x.values.get(lastMonth)||0),0):0;
@@ -186,7 +186,20 @@ async function shipmentTrend(){
   tr.style.cursor='pointer';tr.onclick=()=>{selectedTrendIndustry=item.name;drawContribution();drawTrend();verticalDetail()};table.append(tr)}
  }catch(e){chart.replaceChildren();table.replaceChildren();summary.textContent='Industry insights unavailable: '+e.message}
 }
-async function trendInit(){try{const u=await api('/auth/me');for(const [id,values] of [['company',u.companies],['lob',u.lobs]])for(const value of values){const opt=document.createElement('option');opt.value=value;opt.textContent= id==='lob'?({AE:'Air Export',AI:'Air Import',OE:'Ocean Export',OI:'Ocean Import'}[value]||value):({NG:'New Globe Logistics',NCS:'Neutral Consolidation Services'}[value]||value);$('trend-'+id).append(opt)}$('trend-period').onchange=()=>{applyPeriod();contributorFilterOptions();shipmentTrend();salespersonIndustry()};$('trend-start').onchange=()=>{$('trend-period').value='custom'};$('trend-end').onchange=()=>{$('trend-period').value='custom'};$('trend-refresh').onclick=()=>{contributorFilterOptions();shipmentTrend();salespersonIndustry()};const updateAttribution=()=>{const lob=$('trend-lob').value,role=$('trend-role').value;const subject=role==='shipper'?'Shipper (all selected departments)':role==='consignee'?'Consignee (all selected departments)':lob==='AE'||lob==='OE'?'Shipper (export)':lob==='AI'||lob==='OI'?'Consignee (import)':'Shipper for exports; consignee for imports';$('trend-attribution').textContent='Industry attributed to: '+subject+'. Commercial customer is a separate entity.'};const refreshAll=()=>{updateAttribution();contributorFilterOptions();shipmentTrend();salespersonIndustry()};$('trend-role').onchange=refreshAll;$('trend-lob').onchange=refreshAll;$('trend-company').onchange=refreshAll;updateAttribution();applyPeriod();await contributorFilterOptions();await shipmentTrend()}catch(e){$('trend-summary').textContent=e.message}}
+async function refreshIndustryViews(){contributorFilterOptions();shipmentTrend();salespersonIndustry();if(selectedTrendIndustry)contributorRecords()}
+function trendInit(){try{
+ const u=await api('/auth/me');
+ for(const [id,values] of [['company',u.companies],['lob',u.lobs]])for(const value of values){const opt=document.createElement('option');opt.value=value;opt.textContent=id==='lob'?({AE:'Air Export',AI:'Air Import',OE:'Ocean Export',OI:'Ocean Import'}[value]||value):({NG:'New Globe Logistics',NCS:'Neutral Consolidation Services'}[value]||value);$('trend-'+id).append(opt)}
+ $('trend-period').onchange=()=>{applyPeriod();refreshIndustryViews()};
+ $('trend-start').onchange=()=>{$('trend-period').value='custom'};
+ $('trend-end').onchange=()=>{$('trend-period').value='custom'};
+ $('trend-refresh').onclick=()=>refreshIndustryViews();
+ const updateAttribution=()=>{const lob=selectedValues('lob'),role=$('trend-role').value;const subject=role==='shipper'?'Shipper / Export':role==='consignee'?'Consignee / Import':lob.length===1?(lob[0]==='AE'||lob[0]==='OE'?'Shipper / Export':lob[0]==='AI'||lob[0]==='OI'?'Consignee / Import':'Shipper for exports; consignee for imports'):'Shipper for exports; consignee for imports';$('trend-attribution').textContent='Industry attributed to: '+subject+'. Commercial customer is a separate entity.'};
+ const refreshAll=()=>{updateAttribution();refreshIndustryViews()};
+ $('trend-role').onchange=refreshAll;
+ for(const id of ['company','lob','origin','destination','shipper','consignee','branch'])$('trend-'+id).onchange=refreshAll;
+ updateAttribution();applyPeriod();await contributorFilterOptions();await shipmentTrend();await salespersonIndustry();
+ }catch(e){$('trend-summary').textContent=e.message}}
 async function industryStatus(){try{const data=await api('/api/classifications/industry-status');const totals=$('classification-totals'),bars=$('industry-bars');totals.replaceChildren();bars.replaceChildren();for(const [label,value] of [['Classified organisations',data.classified],['Pending classification',data.pending_classification||0],['Organisations awaiting classification',data.research_pending]]){const pill=document.createElement('span');pill.style.cssText='padding:10px 14px;background:#1a2e4b;border:1px solid #385777;border-radius:8px';pill.textContent=label+': '+Number(value).toLocaleString();totals.append(pill)}const max=Math.max(1,...data.industries.map(x=>x.total));for(const item of data.industries){const wrap=document.createElement('div');wrap.style.cssText='display:grid;grid-template-columns:minmax(140px,240px) 1fr 85px;gap:12px;align-items:center';const label=document.createElement('span');label.textContent=item.industry;const track=document.createElement('div');track.style.cssText='height:18px;background:#0b1525;border-radius:5px;overflow:hidden;display:flex';const bar=document.createElement('div');bar.style.cssText='width:'+(item.total/max*100)+'%;background:#3ba986';track.append(bar);const count=document.createElement('span');count.textContent=item.total+' total';count.title=item.total+' classified organisations';wrap.append(label,track,count);bars.append(wrap)}if(!data.industries.length)bars.textContent='No classifications uploaded yet.'}catch(e){$('industry-bars').textContent=e.message}}
 let salespersonRows=[],salespersonPage=1;
 function renderSalespersonPage(){
@@ -203,12 +216,13 @@ function renderSalespersonPage(){
 }
 async function salespersonIndustry(){
  try{
+  $('salesperson-industry-note').classList.add('is-loading');$('salesperson-industry-note').textContent='Loading salesperson industry mix…';
   const params=trendParams($('trend-start').value,$('trend-end').value);
   const data=await api('/api/classifications/salesperson-industry?'+params);
   salespersonRows=data.rows||[];salespersonPage=1;renderSalespersonPage();
   const exportParams=trendParams($('trend-start').value,$('trend-end').value);
   $('sales-export').href='/api/classifications/salesperson-industry/export?'+exportParams.toString();
-  $('salesperson-industry-note').textContent=data.basis+' '+salespersonRows.length+' salesperson/industry combinations. Showing 10 per page.';
+  $('salesperson-industry-note').classList.remove('is-loading');$('salesperson-industry-note').textContent=data.basis+' '+salespersonRows.length+' salesperson/industry combinations. Showing 10 per page.';
   if(!salespersonRows.length)$('salesperson-industry-note').textContent='No salesperson/industry rows available for the selected source scope.';
  }catch(e){$('salesperson-industry-note').textContent=e.message}
 }
