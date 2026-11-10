@@ -268,7 +268,7 @@ def dashboard_export(company: str|None=None,lob: str|None=None,origin: str|None=
     engine=scoped_engine()
     try:
         data=query_rows(engine,companies,lobs,
-            dashboard_filters(origin,destination,shipper,consignee,branch,start,end),limit=100)
+            dashboard_filters(origin,destination,shipper,consignee,branch,start,end),limit=10000)
         output=analytics_export(data)
     except ValueError as exc: raise HTTPException(400,str(exc))
     finally: engine.dispose()

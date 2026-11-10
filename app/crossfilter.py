@@ -39,7 +39,7 @@ def conditions(companies,lobs,filters):
 
 def query_rows(engine,companies,lobs,filters,limit=25):
     where,params=conditions(companies,lobs,filters)
-    params["limit"]=min(max(int(limit),1),100)
+    params["limit"]=min(max(int(limit),1),10000)
     def run(conn,sql):
         return [dict(r) for r in conn.execute(text(sql),params).mappings()]
     with engine.connect() as conn:
