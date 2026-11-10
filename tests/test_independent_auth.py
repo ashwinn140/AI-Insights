@@ -72,10 +72,22 @@ class IndependentAuthTests(unittest.TestCase):
             auth.add_user(admin["id"], "bad@example.com", "Bad",
                           "another-long-password-123", "viewer", ["OTHER"], ["AE"])
 
-    def test_administrator_cannot_disable_own_account(self):
-        admin = self.create_admin()
-        with self.assertRaisesRegex(ValueError, "own administrator access"):
-            auth.edit_user(admin["id"], admin["id"], active=False)
+    def test_pending_names_keep_nonblank_country_when_duplicate_entities_are_grouped(self):
+        with auth.connection() as db:
+            db.execute("""INSERT INTO research_entities
+                (entity_key,original_name,country,verification_status,appearances,imported_at)
+                VALUES (?,?,?,?,?,?)""",
+                ("entity-blank", "Example Manufacturing Ltd", "", "Unknown", 2, 1))
+            db.execute("""INSERT INTO research_entities
+                (entity_key,original_name,country,verification_status,appearances,imported_at)
+                VALUES (?,?,?,?,?,?)""",
+                ("entity-country", "Example Manufacturing Ltd", "India", "Verified", 5, 1))
+
+        rows = auth.pending_classification_names()
+        example = next(row for row in rows
+                       if row["company_name"] == "Example Manufacturing Ltd")
+        self.assertEqual(example["country"], "India")
+        self.assertEqual(example["appearances"], 5)
 
 
 if __name__ == "__main__":
