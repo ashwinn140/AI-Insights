@@ -549,7 +549,7 @@ def classification_contributor_options(company:str|None=None,lob:str|None=None,
 def classification_contributors(industry:str,company:str|None=None,lob:str|None=None,
         start:str|None=None,end:str|None=None,role:str="primary",
         origin:str|None=None,destination:str|None=None,shipper:str|None=None,
-        consignee:str|None=None,branch:str|None=None,limit:int=10,offset:int=0,record_limit:int=10,record_offset:int=0,user=Depends(current_user)):
+        consignee:str|None=None,branch:str|None=None,limit:int=10,offset:int=0,record_limit:int=10,record_offset:int=0,include_records:bool=False,user=Depends(current_user)):
     """Underlying attributed organisations, with evidence and shipment calculations."""
     if role not in ("primary","shipper","consignee"): raise HTTPException(400,"Invalid counterparty role")
     if not industry or len(industry)>100: raise HTTPException(400,"Invalid industry")
@@ -620,22 +620,38 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
           'shipment_rows',COUNT(*),'distinct_shipments',COUNT(DISTINCT key),
           'teus',COALESCE(SUM(teus),0),'gross_weight',COALESCE(SUM(gross_wt),0))
        FROM filtered) AS record_summary,
-      (SELECT COUNT(*) FROM filtered) AS record_total,
-      COALESCE((SELECT jsonb_agg(to_jsonb(page)
-                    ORDER BY page.shipment_date DESC NULLS LAST,page.shipment_key)
-                FROM (SELECT key AS shipment_key,shipment_date,company,report_type,
-                             shipper,consignee,origin,destination,branch,
-                             salesperson,job_owner,evidence,confidence
-                      FROM filtered
-                      ORDER BY shipment_date DESC NULLS LAST,key
-                      LIMIT :record_limit OFFSET :record_offset) page),'[]'::jsonb) AS records"""
+      (SELECT COUNT(*) FROM filtered) AS record_total"""
     engine=scoped_engine()
     try:
         with engine.connect() as conn:
             result=dict(conn.execute(text(sql),params).mappings().one())
     finally: engine.dispose()
     rows=result["rows"] or []
-    records=result["records"] or []
+    records=[]
+    if include_records:
+        records_sql=sql.replace(
+            """    SELECT
+      COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY page.shipment_rows DESC,page.organisation)
+                FROM (SELECT * FROM grouped ORDER BY shipment_rows DESC,organisation
+                      LIMIT :limit OFFSET :offset) page),'[]'::jsonb) AS rows,
+      (SELECT COUNT(*) FROM grouped) AS contributor_total,
+      (SELECT jsonb_build_object(
+          'shipment_rows',COUNT(*),'distinct_shipments',COUNT(DISTINCT key),
+          'teus',COALESCE(SUM(teus),0),'gross_weight',COALESCE(SUM(gross_wt),0))
+       FROM filtered) AS record_summary,
+      (SELECT COUNT(*) FROM filtered) AS record_total""",
+            """    SELECT COALESCE((SELECT jsonb_agg(to_jsonb(page)
+                ORDER BY page.shipment_date DESC NULLS LAST,page.shipment_key)
+                FROM (SELECT key AS shipment_key,shipment_date,company,report_type,
+                             shipper,consignee,origin,destination,branch,
+                             salesperson,job_owner,evidence,confidence
+                      FROM filtered
+                      ORDER BY shipment_date DESC NULLS LAST,key
+                      LIMIT :record_limit OFFSET :record_offset) page),'[]'::jsonb) AS records"""
+        )
+        with engine.connect() as conn:
+            records_result=conn.execute(text(records_sql),params).mappings().one()
+            records=records_result["records"] or []
     summary_row=result["record_summary"] or {"shipment_rows":0,"distinct_shipments":0,"teus":0,"gross_weight":0}
     contributor_total=int(result["contributor_total"] or 0)
     shipment_record_total=int(result["record_total"] or 0)
@@ -651,7 +667,7 @@ def classification_contributors_export(industry:str,company:str|None=None,lob:st
         start:str|None=None,end:str|None=None,role:str="primary",origin:str|None=None,
         destination:str|None=None,shipper:str|None=None,consignee:str|None=None,
         branch:str|None=None,limit:int=50000,user=Depends(current_user)):
-    data=classification_contributors(industry,company,lob,start,end,role,origin,destination,shipper,consignee,branch,limit,0,50000,0,user)
+    data=classification_contributors(industry,company,lob,start,end,role,origin,destination,shipper,consignee,branch,limit,0,50000,0,True,user)
     rows=data["rows"]; records=data["records"]; summary=data["record_summary"]
     output=workbook_bytes([
       ("Calculation",["Metric","Value"],[[k,v] for k,v in summary.items()]+[[k,v] for k,v in data["calculation"].items()]),
