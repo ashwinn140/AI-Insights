@@ -558,8 +558,8 @@ def classification_pending_template(user=Depends(current_user)):
                 item["salesperson_names"]=(r["salesperson_names"] or "")[:1000]
                 item["job_owner_names"]=(r["job_owner_names"] or "")[:1000]
     except Exception as exc:
-        # Preserve the pending/research workbook, but surface missing source expansion clearly.
         logger.warning("Pending workbook shipment enrichment unavailable (%s)",type(exc).__name__)
+        raise HTTPException(503,"The expanded read-only shipment view is not ready. Apply deployment/04_readonly_role_template.sql before downloading the full reclassification workbook.")
     finally:
         engine.dispose()
     output=workbook_bytes([
