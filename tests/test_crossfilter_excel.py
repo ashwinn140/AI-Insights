@@ -15,7 +15,14 @@ class CrossFilterTests(unittest.TestCase):
         self.assertIn("shipper=ANY(:f_shipper)",where)
         self.assertNotIn("Acme",where)
         self.assertEqual(params["f_shipper"],["Acme"])
-    def test_multi_select(self):\n        where,params=conditions(["NG","NCS"],["AE","AI"],{"origin":"Mumbai,Hong Kong"})\n        self.assertEqual(params["f_origin"],["Mumbai","Hong Kong"])\n        self.assertIn("origin=ANY(:f_origin)",where)\n    def test_invalid_date(self):
+    def test_multi_select(self):
+        where,params=conditions(["NG","NCS"],["AE","AI"],{"origin":"Mumbai,Hong Kong"})
+        self.assertEqual(params["f_origin"],["Mumbai","Hong Kong"])
+        self.assertIn("origin=ANY(:f_origin)",where)
+
+    def test_inverted_date_range(self):
+        with self.assertRaisesRegex(ValueError, "Start date"):
+            conditions(["NG"],["AE"],{"start":"2026-11-10","end":"2026-11-01"})\n    def test_invalid_date(self):
         with self.assertRaises(ValueError):
             conditions(["NG"],["AE"],{"start":"yesterday"})
     def test_unknown_scope(self):
