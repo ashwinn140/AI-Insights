@@ -439,7 +439,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     companies,lobs=allowed_scope(user,company,lob)
     from app.crossfilter import conditions
     try:
-        where,params=conditions(companies,lobs,{"start":start,"end":end})
+        where,params=conditions(companies,lobs,{"start":start,"end":end,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch})
     except ValueError as exc:
         raise HTTPException(400,str(exc))
     with auth.connection() as db:
@@ -519,6 +519,82 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     return {"industry":industry,"role":role,"data":result,
             "notes":["Counts are operational shipment rows, not financial contribution.",
                      "Agent nomination, salesperson and introducer are not in the verified restricted view; not inferred."]}
+
+@app.get("/api/classifications/contributor-options")
+def classification_contributor_options(company:str|None=None,lob:str|None=None,
+        origin:str|None=None,destination:str|None=None,shipper:str|None=None,
+        consignee:str|None=None,branch:str|None=None,start:str|None=None,end:str|None=None,
+        user=Depends(current_user)):
+    companies,lobs=allowed_scope(user,company,lob)
+    from app.crossfilter import filter_options
+    engine=scoped_engine()
+    try:
+        return filter_options(engine,companies,lobs,{"origin":origin,"destination":destination,
+            "shipper":shipper,"consignee":consignee,"branch":branch,"start":start,"end":end})
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    finally: engine.dispose()
+
+@app.get("/api/classifications/contributors")
+def classification_contributors(industry:str,company:str|None=None,lob:str|None=None,
+        start:str|None=None,end:str|None=None,role:str="primary",
+        origin:str|None=None,destination:str|None=None,shipper:str|None=None,
+        consignee:str|None=None,branch:str|None=None,user=Depends(current_user)):
+    """Underlying attributed organisations, with evidence and shipment calculations."""
+    if role not in ("primary","shipper","consignee"): raise HTTPException(400,"Invalid counterparty role")
+    if not industry or len(industry)>100: raise HTTPException(400,"Invalid industry")
+    companies,lobs=allowed_scope(user,company,lob)
+    from app.crossfilter import conditions
+    filters={"start":start,"end":end,"origin":origin,"destination":destination,
+             "shipper":shipper,"consignee":consignee,"branch":branch}
+    try: where,params=conditions(companies,lobs,filters)
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    with auth.connection() as db:
+        mapping=[dict(r) for r in db.execute("""SELECT company_name,industry,country,confidence,source
+            FROM classifications WHERE TRIM(COALESCE(industry,''))<>''""")]
+    import json
+    params["mapping"]=json.dumps(mapping); params["industry"]=industry; params["role"]=role
+    party=("CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END"
+           if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
+    other=("CASE WHEN s.report_type IN ('AE','OE') THEN s.consignee ELSE s.shipper END"
+           if role=="primary" else ("s.consignee" if role=="shipper" else "s.shipper"))
+    sql=f"""WITH industry_map AS (
+      SELECT LOWER(BTRIM(company_name)) AS normalized_name,
+             CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry,
+             MIN(country) AS country, MIN(confidence) AS confidence, MIN(source) AS evidence
+      FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
+        AS x(company_name text,industry text,country text,confidence text,source text)
+      GROUP BY 1
+    ), attributed AS (
+      SELECT s.*, NULLIF(BTRIM({party}),'') AS contributor,
+             NULLIF(BTRIM({other}),'') AS related_party,
+             CASE WHEN s.report_type IN ('AE','OE') THEN 'Shipper' ELSE 'Consignee' END AS attributed_role,
+             m.industry,m.country,m.confidence,m.evidence
+      FROM ai_insights_source.current_shipments s
+      LEFT JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
+      WHERE {where}
+    )
+    SELECT contributor AS organisation,
+           CASE WHEN :role='shipper' THEN 'Shipper'
+                WHEN :role='consignee' THEN 'Consignee' ELSE MIN(attributed_role) END AS contributor_role,
+           COUNT(*) AS shipment_rows, COUNT(DISTINCT key) AS distinct_shipments,
+           COUNT(DISTINCT related_party) AS distinct_related_parties,
+           COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
+           STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
+           STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners,
+           MIN(country) AS country, MIN(confidence) AS confidence, MIN(evidence) AS evidence
+    FROM attributed WHERE industry=:industry AND contributor IS NOT NULL
+    GROUP BY contributor ORDER BY shipment_rows DESC,contributor LIMIT 500"""
+    engine=scoped_engine()
+    try:
+        with engine.connect() as conn:
+            rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
+    finally: engine.dispose()
+    return {"industry":industry,"role":role,"rows":rows,
+            "calculation":{"contributor_organisations":len(rows),
+                "shipment_rows":sum(int(r["shipment_rows"] or 0) for r in rows),
+                "distinct_shipments_sum":sum(int(r["distinct_shipments"] or 0) for r in rows),
+                "basis":"Shipment rows are counted per attributed organisation. Distinct shipment keys are per organisation and are not additive across organisations."},
+            "evidence_basis":"Classification source saved for each organisation; URL links open directly, other notes remain text."}
 
 @app.get("/api/classifications/industry-status")
 def classification_status_api(user=Depends(current_user)):
@@ -619,7 +695,7 @@ async def classifications_reset_for_reclassification(request:Request,user=Depend
         raise HTTPException(400,str(exc))
 
 @app.get("/api/classifications/salesperson-industry")
-def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=None,end:str|None=None,
+def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=None,end:str|None=None,origin:str|None=None,destination:str|None=None,shipper:str|None=None,consignee:str|None=None,branch:str|None=None,
                          user=Depends(current_user)):
     companies,lobs=allowed_scope(user,company,lob)
     with auth.connection() as db:
