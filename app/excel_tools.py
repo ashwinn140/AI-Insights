@@ -80,30 +80,42 @@ def parse_classification_xlsx(payload):
         rows.append((name,industry,confidence.strip().lower(),source,country))
     return rows,skipped
 
-def classification_template():
-    payload=workbook_bytes([
-        ("Classification import",
-         ["company_name","industry","confidence","source","country"],
-         [["Example Company",INDUSTRY_VERTICALS[0],"medium","Verified source reference","India"]]),
-        ("AI Prompt",["Instructions"],[[
-            "Complete Sheet 1 only. Preserve organisation names and all rows. Use only the exact 15 verticals. "
-            "Use credible company-specific evidence; shipper/consignee appearances and salesperson/job-owner context "
-            "are clues, not proof. Leave uncertain industries blank and explain why in source. Every assigned industry "
-            "must include a verifiable URL or specific evidence note.\n\n"+INDUSTRY_PROMPT
-        ]])
-    ])
+def classification_workbook_with_prompt(sheets, import_sheet_title):
+    """Add canonical research instructions and the 15-industry dropdown."""
+    payload=workbook_bytes(sheets)
     wb=load_workbook(BytesIO(payload))
-    ws=wb["Classification import"]
+    if "AI Prompt" not in wb.sheetnames:
+        ws=wb.create_sheet("AI Prompt", 1)
+        ws.append(["Instructions"])
+        ws.append(["Complete Sheet 1 only. Preserve every organisation and every column. Use only the exact 15 industry verticals. Use company-specific evidence; shipper/consignee appearances and salesperson/job-owner context are clues, not proof. Leave uncertain industries blank. Include a verifiable URL or specific evidence note for every classified row. Do not copy this prompt elsewhere.\n\n"+INDUSTRY_PROMPT])
+        ws.column_dimensions["A"].width=120
+        ws["A1"].font=Font(bold=True,color="FFFFFF")
+        ws["A1"].fill=PatternFill("solid",fgColor="193557")
+        ws["A2"].alignment=Alignment(wrap_text=True,vertical="top")
+        ws.row_dimensions[2].height=360
+    prompt=wb["AI Prompt"]
+    prompt.column_dimensions["A"].width=120
+    prompt["A1"].font=Font(bold=True,color="FFFFFF")
+    prompt["A1"].fill=PatternFill("solid",fgColor="193557")
+    if prompt.max_row>=2:
+        prompt["A2"].alignment=Alignment(wrap_text=True,vertical="top")
+        prompt.row_dimensions[2].height=420
+    if "Industry Master" in wb.sheetnames: del wb["Industry Master"]
     master=wb.create_sheet("Industry Master")
-    for label in INDUSTRY_VERTICALS:
-        master.append([label])
+    for label in INDUSTRY_VERTICALS: master.append([label])
     master.sheet_state="hidden"
     wb.defined_names.add(DefinedName("IndustryVerticals",attr_text="'Industry Master'!$A$1:$A$15"))
+    ws=wb[import_sheet_title]
     validation=DataValidation(type="list",formula1="=IndustryVerticals",allow_blank=True)
     validation.error="Select one of the 15 industry verticals."
     validation.errorTitle="Invalid industry"
     validation.showErrorMessage=True
     ws.add_data_validation(validation)
     validation.add("B2:B50001")
-    out=BytesIO();wb.save(out)
-    return out.getvalue()
+    out=BytesIO(); wb.save(out); return out.getvalue()
+
+def classification_template():
+    return classification_workbook_with_prompt([
+        ("Classification import",["company_name","industry","confidence","source","country"],
+         [["Example Company",INDUSTRY_VERTICALS[0],"medium","Verified source reference","India"]])
+    ],"Classification import")
