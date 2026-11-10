@@ -30,6 +30,23 @@ class CrossFilterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             conditions(["NG","OTHER"],["AE"],{})
 
+    def test_checkbox_filter_allows_250_values(self):
+        values=[f"Party {i}" for i in range(250)]
+        import json
+        where,params=conditions(["NG"],["AE"],{"shipper":"j:"+json.dumps(values)})
+        self.assertIn("shipper=ANY(:f_shipper)",where)
+        self.assertEqual(len(params["f_shipper"]),250)
+
+    def test_checkbox_filter_rejects_more_than_250_values(self):
+        values=[f"Party {i}" for i in range(251)]
+        import json
+        with self.assertRaisesRegex(ValueError,"Too many"):
+            conditions(["NG"],["AE"],{"shipper":"j:"+json.dumps(values)})
+
+    def test_malformed_checkbox_filter_is_rejected(self):
+        with self.assertRaisesRegex(ValueError,"Invalid filter"):
+            conditions(["NG"],["AE"],{"shipper":"j:{bad json"})
+
 class ExcelTests(unittest.TestCase):
     def test_template_roundtrip(self):
         rows,skipped=parse_classification_xlsx(classification_template())

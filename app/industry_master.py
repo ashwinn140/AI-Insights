@@ -28,7 +28,7 @@ WORKSHEET AND OUTPUT RULES
 - Update only industry, confidence and source.
 - Industry must be exactly one label from the 15-value master listed below.
 - For a defensible classification, set confidence to high, medium or low and include an evidence note and source URL where available.
-- When evidence is insufficient, conflicting or outside the taxonomy, leave industry and confidence blank and briefly explain the reason in source.
+- When evidence is insufficient, conflicting or outside the taxonomy, leave industry blank and leave confidence blank; briefly explain the reason in source.
 - Do not invent facts, URLs, country values, legal entities or subsidiaries.
 
 APPROVED INDUSTRY MASTER — EXACT LABELS ONLY

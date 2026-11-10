@@ -13,7 +13,7 @@ class DashboardLandingTests(unittest.TestCase):
 
     def test_successful_login_returns_to_operations_dashboard(self):
         source = Path("app/industry_explorer.html").read_text()
-        self.assertIn("location.replace('/')", source)
+        self.assertIn("location.replace('/classifications')", source)
 
 
     def test_discovery_pages_remain_in_primary_navigation(self):
