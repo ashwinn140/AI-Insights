@@ -275,6 +275,7 @@ def dashboard_export(company: str|None=None,lob: str|None=None,origin: str|None=
         headers={"Content-Disposition":"attachment; filename=ai-insights-operations.xlsx",
                  "Cache-Control":"no-store"})
 
+@app.get("/api/classifications/template")
 @app.get("/api/admin/classifications/template")
 def classification_xlsx_template(user=Depends(current_user)):
     return StreamingResponse(BytesIO(classification_template()),
@@ -289,6 +290,7 @@ def _saved_classification_export_rows():
             FROM classifications WHERE TRIM(COALESCE(industry,'')) <> ''
             ORDER BY company_name COLLATE NOCASE""")]
 
+@app.get("/api/classifications/export")
 @app.get("/api/admin/classifications/export")
 def classification_xlsx_export(user=Depends(current_user)):
     rows=_saved_classification_export_rows()
@@ -300,6 +302,7 @@ def classification_xlsx_export(user=Depends(current_user)):
         headers={"Content-Disposition":"attachment; filename=ai-insights-classified-organizations.xlsx",
                  "Cache-Control":"no-store"})
 
+@app.get("/api/classifications/unique-verticals")
 @app.get("/api/admin/classifications/unique-verticals")
 def classification_unique_verticals(user=Depends(current_user)):
     # Case-insensitive unique vertical names, with distinct organization counts.
@@ -316,6 +319,7 @@ def classification_unique_verticals(user=Depends(current_user)):
         headers={"Content-Disposition":"attachment; filename=ai-insights-unique-industry-verticals.xlsx",
                  "Cache-Control":"no-store"})
 
+@app.post("/api/classifications/import")
 @app.post("/api/admin/classifications/import")
 async def classification_xlsx_import(request:Request,file:UploadFile=File(...),user=Depends(require_classification_admin)):
     same_origin(request)
@@ -656,6 +660,7 @@ def classifications_api(q: str="",user=Depends(current_user)):
     if len(q)>100: raise HTTPException(400,"Search too long")
     return {"results":auth.classification_list(q)}
 
+@app.post("/api/classifications/save")
 @app.post("/api/admin/classifications")
 async def classification_upsert(request: Request,user=Depends(require_classification_admin)):
     same_origin(request)

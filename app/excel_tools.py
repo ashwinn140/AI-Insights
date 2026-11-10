@@ -5,7 +5,7 @@ from openpyxl.styles import Font,PatternFill,Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.workbook.defined_name import DefinedName
-from app.industry_master import INDUSTRY_VERTICALS, validate_industry
+from app.industry_master import INDUSTRY_VERTICALS, INDUSTRY_PROMPT, validate_industry
 
 def safe_cell(value):
     if isinstance(value,str) and value.lstrip().startswith(("=","+","-","@")):
@@ -81,9 +81,17 @@ def parse_classification_xlsx(payload):
     return rows,skipped
 
 def classification_template():
-    payload=workbook_bytes([("Classification import",
-        ["company_name","industry","confidence","source","country"],
-        [["Example Company",INDUSTRY_VERTICALS[0],"medium","Verified source reference","India"]])])
+    payload=workbook_bytes([
+        ("Classification import",
+         ["company_name","industry","confidence","source","country"],
+         [["Example Company",INDUSTRY_VERTICALS[0],"medium","Verified source reference","India"]]),
+        ("AI Prompt",["Instructions"],[[
+            "Complete Sheet 1 only. Preserve organisation names and all rows. Use only the exact 15 verticals. "
+            "Use credible company-specific evidence; shipper/consignee appearances and salesperson/job-owner context "
+            "are clues, not proof. Leave uncertain industries blank and explain why in source. Every assigned industry "
+            "must include a verifiable URL or specific evidence note.\n\n"+INDUSTRY_PROMPT
+        ]])
+    ])
     wb=load_workbook(BytesIO(payload))
     ws=wb["Classification import"]
     master=wb.create_sheet("Industry Master")
