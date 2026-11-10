@@ -93,6 +93,13 @@ def classification_workbook_with_prompt(sheets, import_sheet_title):
         ws["A1"].fill=PatternFill("solid",fgColor="193557")
         ws["A2"].alignment=Alignment(wrap_text=True,vertical="top")
         ws.row_dimensions[2].height=360
+    prompt=wb["AI Prompt"]
+    prompt.column_dimensions["A"].width=120
+    prompt["A1"].font=Font(bold=True,color="FFFFFF")
+    prompt["A1"].fill=PatternFill("solid",fgColor="193557")
+    if prompt.max_row>=2:
+        prompt["A2"].alignment=Alignment(wrap_text=True,vertical="top")
+        prompt.row_dimensions[2].height=420
     if "Industry Master" in wb.sheetnames: del wb["Industry Master"]
     master=wb.create_sheet("Industry Master")
     for label in INDUSTRY_VERTICALS: master.append([label])
