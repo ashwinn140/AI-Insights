@@ -139,7 +139,7 @@ async function shipmentTrend(){
  const ranked=[...byIndustry].map(([name,values])=>({name,values,total:[...values.values()].reduce((a,b)=>a+b,0)})).sort((a,b)=>b.total-a.total);
  const total=ranked.reduce((a,b)=>a+b.total,0),unclassified=ranked.find(x=>x.name==='Unclassified')?.total||0;
  const fmt=n=>Number(n||0).toLocaleString('en-IN'),share=n=>total?(100*n/total).toFixed(1)+'%':'0%';
- compareTrendPeriods(total);summary.classList.remove('is-loading');summary.textContent=fmt(total)+' shipment rows · '+months.length+' months · '+share(total-unclassified)+' classified · '+fmt(unclassified)+' unclassified';
+ await compareTrendPeriods(total);summary.classList.remove('is-loading');summary.textContent=fmt(total)+' shipment rows · '+months.length+' months · '+share(total-unclassified)+' classified · '+fmt(unclassified)+' unclassified';
  const kpis=$('trend-kpis');kpis.replaceChildren();
  const lastMonth=months[months.length-1],prevMonth=months.length>1?months[months.length-2]:null;
  const currentTotal=lastMonth?ranked.reduce((n,x)=>n+(x.values.get(lastMonth)||0),0):0;
@@ -174,7 +174,7 @@ async function shipmentTrend(){
    const bar=document.createElement('div');bar.style.width=(item.total/Math.max(1,ranked[0].total)*100)+'%';track.append(bar);
    button.append(title,count,track);button.title=item.name==='Unclassified'?'Shipment rows with no saved industry for the selected shipper/consignee. Click to inspect the operational breakdown.':'Click to inspect this industry by department, trade lane and organization.';button.setAttribute('aria-label',item.name+': '+fmt(item.total)+' shipment rows. Open drilldown');button.onclick=()=>{selectedTrendIndustry=item.name;drawContribution();drawTrend();verticalDetail();contributorRecords()};contribution.append(button)}
    if(ranked.length>12){const note=document.createElement('p');note.textContent='Top 12 shown; all industries are in the table below.';note.className='muted';contribution.append(note)}}
- drawContribution();if(selectedTrendIndustry){drawTrend();verticalDetail();}else{trendHeading.textContent='Select an industry to view its monthly trend';trendArea.textContent='Choose an industry from the contribution chart or table to load its detailed analysis.';$('vertical-note').textContent='Select an industry above to load its operational drilldown.';$('contributor-summary').textContent='Select an industry to load contributor organisations and shipment records.'}
+ drawContribution();if(selectedTrendIndustry){drawTrend();}else{trendHeading.textContent='Select an industry to view its monthly trend';trendArea.textContent='Choose an industry from the contribution chart or table to load its detailed analysis.';$('vertical-note').textContent='Select an industry above to load its operational drilldown.';$('contributor-summary').textContent='Select an industry to load contributor organisations and shipment records.'}
  const header=$('trend-table').closest('table').querySelector('thead tr');header.replaceChildren();
  for(const name of ['Industry','Total shipments','Share','Previous month','Latest month','MoM change']){const th=document.createElement('th');th.textContent=name;header.append(th)}
  const last=months[months.length-1],previous=months.length>1?months[months.length-2]:null;
