@@ -36,7 +36,7 @@ class ExcelTests(unittest.TestCase):
         self.assertEqual(skipped,0)
         self.assertEqual(rows[0][0],"Example Company")
         self.assertEqual(rows[0][1],"Automotive & Auto Components")
-        self.assertFalse(rows[0][4])
+        self.assertEqual(rows[0][4], "India")
     def test_export_tabs(self):
         data={"overview":{"shipments":1,"shippers":1,"consignees":1,"teus":0,"gross_weight":0},
               "breakdown":[{"company":"NG","report_type":"AE","shipments":1}],
