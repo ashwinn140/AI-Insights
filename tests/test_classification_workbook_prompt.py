@@ -10,6 +10,8 @@ class WorkbookPromptTests(unittest.TestCase):
         wb=load_workbook(BytesIO(classification_template()))
         self.assertEqual(wb.sheetnames[:2],["Classification import","AI Prompt"])
         self.assertIn(INDUSTRY_PROMPT,str(wb["AI Prompt"]["A2"].value))
+        self.assertGreaterEqual(wb["AI Prompt"].column_dimensions["A"].width,100)
+        self.assertTrue(wb["AI Prompt"]["A2"].alignment.wrap_text)
         self.assertEqual(wb["Industry Master"].sheet_state,"hidden")
         self.assertEqual(wb["Classification import"].data_validations.dataValidation[0].formula1,"=IndustryVerticals")
         for label in INDUSTRY_VERTICALS: self.assertIn(label,str(wb["AI Prompt"]["A2"].value))
