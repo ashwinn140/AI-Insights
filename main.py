@@ -660,72 +660,77 @@ def classification_status_api(user=Depends(current_user)):
 
 @app.get("/api/classifications/pending-template")
 def classification_pending_template(user=Depends(current_user)):
-    # Include research entities, every previously classified record after reset, and
-    # every unique shipper/consignee in the authorised shipment scope.
-    rows=auth.pending_classification_names(limit=50000)
-    merged={r["company_name"].strip().casefold():{
-        "company_name":r["company_name"],"country":r.get("country") or "",
-        "research_status":r.get("research_status") or "Pending","appearances":r.get("appearances") or 0,
-        "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":"","job_owner_names":""}
-        for r in rows if r.get("company_name")}
+    """Export a compact, reusable workbook with saved decisions preserved."""
+    # Keep saved classifications (including completed AI/Gemini work) and add
+    # genuinely pending companies discovered from the permitted research/source data.
+    saved=auth.classification_rows_for_workbook(limit=50000)
+    pending=auth.pending_classification_names(limit=50000)
+    merged={}
+    for row in saved:
+        name=(row.get("company_name") or "").strip()
+        if not name:
+            continue
+        key=name.casefold()
+        merged[key]={
+            "company_name":name,
+            "industry":row.get("industry") or "",
+            "confidence":row.get("confidence") or "",
+            "source":row.get("source") or "",
+            "country":row.get("country") or "",
+            "appearances":int(row.get("appearances") or 0),
+        }
+    for row in pending:
+        name=(row.get("company_name") or "").strip()
+        if not name:
+            continue
+        key=name.casefold()
+        item=merged.setdefault(key,{
+            "company_name":name,"industry":"","confidence":"","source":"",
+            "country":row.get("country") or "","appearances":0,
+        })
+        if not item["country"] and row.get("country"):
+            item["country"]=row["country"]
+        item["appearances"]=max(item["appearances"],int(row.get("appearances") or 0))
+    # Add shipment counterparties only when available; the workbook itself stays
+    # limited to the five agreed columns. Do not require salesperson/job-owner extras.
     companies,lobs=allowed_scope(user,None,None)
     engine=scoped_engine()
     try:
-        # This expanded source contract requires the view to expose ERP Sales Person separately from job_owner.
-        statement=text("""WITH parties AS (
-          SELECT NULLIF(BTRIM(shipper),'') AS company_name,
-                 COUNT(*) AS shipper_appearances,0::bigint AS consignee_appearances,
-                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,
-                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
+        statement=text("""SELECT company_name,COUNT(*) AS appearances FROM (
+          SELECT NULLIF(BTRIM(shipper),'') AS company_name
           FROM ai_insights_source.current_shipments
           WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
             AND NULLIF(BTRIM(shipper),'') IS NOT NULL
-          GROUP BY 1
           UNION ALL
-          SELECT NULLIF(BTRIM(consignee),'') AS company_name,
-                 0::bigint AS shipper_appearances,COUNT(*) AS consignee_appearances,
-                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,
-                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
+          SELECT NULLIF(BTRIM(consignee),'') AS company_name
           FROM ai_insights_source.current_shipments
           WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
             AND NULLIF(BTRIM(consignee),'') IS NOT NULL
-          GROUP BY 1
-        )
-        SELECT company_name,SUM(shipper_appearances) AS shipper_appearances,
-               SUM(consignee_appearances) AS consignee_appearances,
-               STRING_AGG(DISTINCT salesperson_names,'; ') AS salesperson_names,
-               STRING_AGG(DISTINCT job_owner_names,'; ') AS job_owner_names
-        FROM parties GROUP BY company_name ORDER BY company_name LIMIT 50000""")
+        ) parties GROUP BY company_name ORDER BY appearances DESC LIMIT 50000""")
         with engine.connect() as conn:
-            for r in conn.execute(statement,{"companies":companies,"lobs":lobs}).mappings():
-                key=r["company_name"].strip().casefold()
-                item=merged.setdefault(key,{"company_name":r["company_name"],"country":"",
-                    "research_status":"Shipment source","appearances":0,
-                    "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":"","job_owner_names":""})
-                item["shipper_appearances"]=int(r["shipper_appearances"] or 0)
-                item["consignee_appearances"]=int(r["consignee_appearances"] or 0)
-                item["appearances"]=max(item["appearances"],item["shipper_appearances"]+item["consignee_appearances"])
-                item["salesperson_names"]=(r["salesperson_names"] or "")[:1000]
-                item["job_owner_names"]=(r["job_owner_names"] or "")[:1000]
+            for row in conn.execute(statement,{"companies":companies,"lobs":lobs}).mappings():
+                name=(row["company_name"] or "").strip()
+                if not name:
+                    continue
+                key=name.casefold()
+                item=merged.setdefault(key,{
+                    "company_name":name,"industry":"","confidence":"","source":"",
+                    "country":"","appearances":0,
+                })
+                item["appearances"]=max(item["appearances"],int(row["appearances"] or 0))
     except Exception as exc:
-        logger.warning("Pending workbook shipment enrichment unavailable (%s)",type(exc).__name__)
-        raise HTTPException(503,"The expanded read-only shipment view is not ready. Apply deployment/04_readonly_role_template.sql before downloading the full reclassification workbook.")
+        logger.warning("Pending workbook shipment discovery unavailable (%s)",type(exc).__name__)
+        raise HTTPException(503,"The authorised shipment source is not ready for classification export.")
     finally:
         engine.dispose()
+    ordered=sorted(merged.values(),
+        key=lambda row:(-row["appearances"],row["company_name"].casefold()))
     output=classification_workbook_with_prompt([
         ("Pending classification",
          ["company_name","industry","confidence","source","country"],
-         [[r["company_name"],"","","",r.get("country") or ""] for r in sorted(
-             merged.values(),key=lambda x:(-int(x.get("appearances") or 0),x["company_name"].casefold())
-         )[:50000]]),
-        ("AI Prompt",["Instructions"],[[
-          "Update only the fields that need classification. Keep company_name and the existing country unchanged. "
-          "Fill industry only when supported by credible company-specific evidence; use confidence low/medium/high "
-          "and add a verifiable source URL or concise evidence note. Leave industry blank when uncertain. "
-          "Do not add columns, rename companies, or remove rows. Use only the exact 15 industry verticals listed below.\n\n"
-          + INDUSTRY_PROMPT
-        ]])
-    ], "Pending classification")
+         [[row["company_name"],row["industry"],row["confidence"],row["source"],row["country"]]
+          for row in ordered[:50000]])
+    ],"Pending classification")
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
