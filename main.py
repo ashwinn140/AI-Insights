@@ -586,73 +586,59 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
       FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
         AS x(company_name text,industry text,country text,confidence text,source text)
       GROUP BY 1
-    ), attributed AS (
+    ), filtered AS MATERIALIZED (
       SELECT s.*, NULLIF(BTRIM({party}),'') AS contributor,
              NULLIF(BTRIM({other}),'') AS related_party,
              CASE WHEN s.report_type IN ('AE','OE') THEN 'Shipper' ELSE 'Consignee' END AS attributed_role,
-             m.industry,m.country,m.confidence,m.evidence
+             m.country,m.confidence,m.evidence
       FROM ai_insights_source.current_shipments s
-      LEFT JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
+      JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
+                          AND m.industry=:industry
       WHERE {where}
+    ), grouped AS MATERIALIZED (
+      SELECT contributor AS organisation,
+             CASE WHEN :role='shipper' THEN 'Shipper'
+                  WHEN :role='consignee' THEN 'Consignee'
+                  ELSE CASE WHEN COUNT(DISTINCT attributed_role)=1
+                            THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END
+             END AS contributor_role,
+             COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
+             COUNT(DISTINCT related_party) AS distinct_related_parties,
+             COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
+             STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
+             STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners,
+             MIN(country) AS country,MIN(confidence) AS confidence,MIN(evidence) AS evidence
+      FROM filtered WHERE contributor IS NOT NULL
+      GROUP BY contributor
     )
-    SELECT contributor AS organisation,
-           CASE WHEN :role='shipper' THEN 'Shipper'
-                WHEN :role='consignee' THEN 'Consignee' ELSE CASE WHEN COUNT(DISTINCT attributed_role)=1 THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END END AS contributor_role,
-           COUNT(*) AS shipment_rows, COUNT(DISTINCT key) AS distinct_shipments,
-           COUNT(DISTINCT related_party) AS distinct_related_parties,
-           COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
-           STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
-           STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners,
-           MIN(country) AS country, MIN(confidence) AS confidence, MIN(evidence) AS evidence
-    FROM attributed WHERE industry=:industry AND contributor IS NOT NULL
-    GROUP BY contributor ORDER BY shipment_rows DESC,contributor LIMIT :limit OFFSET :offset"""
+    SELECT
+      COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY page.shipment_rows DESC,page.organisation)
+                FROM (SELECT * FROM grouped ORDER BY shipment_rows DESC,organisation
+                      LIMIT :limit OFFSET :offset) page),'[]'::jsonb) AS rows,
+      (SELECT COUNT(*) FROM grouped) AS contributor_total,
+      (SELECT jsonb_build_object(
+          'shipment_rows',COUNT(*),'distinct_shipments',COUNT(DISTINCT key),
+          'teus',COALESCE(SUM(teus),0),'gross_weight',COALESCE(SUM(gross_wt),0))
+       FROM filtered) AS record_summary,
+      (SELECT COUNT(*) FROM filtered) AS record_total,
+      COALESCE((SELECT jsonb_agg(to_jsonb(page)
+                    ORDER BY page.shipment_date DESC NULLS LAST,page.shipment_key)
+                FROM (SELECT key AS shipment_key,shipment_date,company,report_type,
+                             shipper,consignee,origin,destination,branch,
+                             salesperson,job_owner,evidence,confidence
+                      FROM filtered
+                      ORDER BY shipment_date DESC NULLS LAST,key
+                      LIMIT :record_limit OFFSET :record_offset) page),'[]'::jsonb) AS records"""
     engine=scoped_engine()
     try:
         with engine.connect() as conn:
-            rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
-            count_sql=f"""WITH industry_map AS (SELECT LOWER(BTRIM(company_name)) AS normalized_name, CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text,country text,confidence text,source text) GROUP BY 1) SELECT COUNT(*) FROM (SELECT 1 FROM ai_insights_source.current_shipments s LEFT JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name WHERE {where} AND m.industry=:industry AND NULLIF(BTRIM({party}),'') IS NOT NULL GROUP BY {party}) q"""
-            contributor_total=int(conn.execute(text(count_sql),params).scalar() or 0)
-            summary_sql=f"""WITH industry_map AS (
-              SELECT LOWER(BTRIM(company_name)) AS normalized_name,
-                     CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry
-              FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
-                AS x(company_name text,industry text,country text,confidence text,source text)
-              GROUP BY 1
-            )
-            SELECT COUNT(*) AS shipment_rows,COUNT(DISTINCT s.key) AS distinct_shipments,
-                   COALESCE(SUM(s.teus),0) AS teus,COALESCE(SUM(s.gross_wt),0) AS gross_weight
-            FROM ai_insights_source.current_shipments s
-            LEFT JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
-            WHERE {where} AND m.industry=:industry"""
-            summary_row=dict(conn.execute(text(summary_sql),params).mappings().one())
-            record_count_sql=f"""WITH industry_map AS (
-              SELECT LOWER(BTRIM(company_name)) AS normalized_name,
-                     CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry
-              FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
-                AS x(company_name text,industry text,country text,confidence text,source text)
-              GROUP BY 1
-            )
-            SELECT COUNT(*) FROM ai_insights_source.current_shipments s
-            JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
-            WHERE {where} AND m.industry=:industry"""
-            shipment_record_total=int(conn.execute(text(record_count_sql),params).scalar() or 0)
-            record_sql=f"""WITH industry_map AS (
-              SELECT LOWER(BTRIM(company_name)) AS normalized_name,
-                     CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry,
-                     MIN(source) AS evidence,MIN(confidence) AS confidence
-              FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
-                AS x(company_name text,industry text,country text,confidence text,source text)
-              GROUP BY 1
-            )
-            SELECT s.key AS shipment_key,s.shipment_date,s.company,s.report_type,
-                   s.shipper,s.consignee,s.origin,s.destination,s.branch,
-                   s.salesperson,s.job_owner,m.evidence,m.confidence
-            FROM ai_insights_source.current_shipments s
-            JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
-            WHERE {where} AND m.industry=:industry
-            ORDER BY s.shipment_date DESC NULLS LAST,s.key LIMIT :record_limit OFFSET :record_offset"""
-            records=[dict(r) for r in conn.execute(text(record_sql),params).mappings()]
+            result=dict(conn.execute(text(sql),params).mappings().one())
     finally: engine.dispose()
+    rows=result["rows"] or []
+    records=result["records"] or []
+    summary_row=result["record_summary"] or {"shipment_rows":0,"distinct_shipments":0,"teus":0,"gross_weight":0}
+    contributor_total=int(result["contributor_total"] or 0)
+    shipment_record_total=int(result["record_total"] or 0)
     return {"industry":industry,"role":role,"rows":rows,"records":records,"contributor_total":contributor_total,"record_total":shipment_record_total,"record_summary":summary_row,
             "calculation":{"contributor_organisations":contributor_total,
                 "shipment_rows":sum(int(r["shipment_rows"] or 0) for r in rows),
