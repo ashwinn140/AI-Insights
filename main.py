@@ -427,7 +427,7 @@ def classification_page(user=Depends(current_user)):
 
 @app.get("/api/classifications/shipment-trend")
 def classification_shipment_trend(company: str|None=None,lob: str|None=None,
-        start: str|None=None,end: str|None=None,role: str="shipper",
+        start: str|None=None,end: str|None=None,origin:str|None=None,destination:str|None=None,shipper:str|None=None,consignee:str|None=None,branch:str|None=None,role: str="shipper",
         user=Depends(current_user)):
     """Monthly operational shipment rows attributed to saved company industries.
 
@@ -477,7 +477,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
 
 @app.get("/api/classifications/vertical-performance")
 def vertical_performance(industry: str,company: str|None=None,lob: str|None=None,
-        start: str|None=None,end: str|None=None,role: str="shipper",
+        start: str|None=None,end: str|None=None,origin:str|None=None,destination:str|None=None,shipper:str|None=None,consignee:str|None=None,branch:str|None=None,role: str="shipper",
         user=Depends(current_user)):
     """Read-only industry drilldown: lanes, mode, branches, counterparties and months."""
     if role not in ("primary","shipper","consignee"): raise HTTPException(400,"Invalid role")
