@@ -316,7 +316,7 @@ def classification_import(actor,rows):
                    ("classification_excel_import_"+str(imported),actor,int(time.time())))
     return imported
 
-def pending_classification_names(limit=10000):
+def pending_classification_names(limit=50000):
     """Unclassified research names only; does not invent industries."""
     with connection() as db:
         return [dict(row) for row in db.execute("""
@@ -336,7 +336,7 @@ def pending_classification_names(limit=10000):
             GROUP BY company_name COLLATE NOCASE
             ORDER BY MAX(appearances) DESC,company_name COLLATE NOCASE
             LIMIT ?
-        """,(min(max(int(limit),1),10000),))]
+        """,(min(max(int(limit),1),50000),))]
 
 def classification_industry_status():
     with connection() as db:
