@@ -433,7 +433,8 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     params["classifications"]=json.dumps(classifications)
     counterparty=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     sql=f"""WITH approved AS (
-       SELECT LOWER(BTRIM(company_name)) AS normalized_name, MIN(industry) AS industry
+       SELECT LOWER(BTRIM(company_name)) AS normalized_name,
+              CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) ELSE NULL END AS industry
        FROM jsonb_to_recordset(CAST(:classifications AS jsonb))
          AS x(company_name text,industry text)
        GROUP BY LOWER(BTRIM(company_name))
@@ -475,7 +476,8 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     params["industry"]=industry
     field=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     base=f"""WITH industry_map AS (
-       SELECT LOWER(BTRIM(company_name)) AS name,MIN(industry) AS industry
+       SELECT LOWER(BTRIM(company_name)) AS name,
+              CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) ELSE NULL END AS industry
        FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text)
        GROUP BY 1
     ), scoped AS (
