@@ -8,11 +8,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pathlib import Path
+from urllib.parse import urlsplit
 from io import BytesIO
 from app.crossfilter import query_rows,filter_options
 from app.research_catalog import parse_research,import_research,research_summary,research_list
 from app.excel_tools import analytics_export,parse_classification_xlsx,classification_template,workbook_bytes
 from app import independent_auth as auth
+from app.industry_master import INDUSTRY_VERTICALS, INDUSTRY_PROMPT
 from app.industry_explorer import summary, top_trade_lanes, company_appearances
 from app.company_discovery import search_companies, opportunity_candidates
 from sqlalchemy import create_engine, text
@@ -87,12 +89,30 @@ app = FastAPI(title="AI Insights Operations", lifespan=lifespan,
 @app.get("/healthz")
 def healthz():
     return {"status": "running", "product": "AI Insights",
-            "data_access": "disabled", "production_ready": False}
+            "data_access": "verified" if _database_verified else "disabled",
+            "production_ready": False}
 
 def same_origin(request: Request):
+    """Reject cross-origin mutations; allow plain HTTP only on loopback hosts."""
     origin = request.headers.get("origin")
     host = request.headers.get("host", "")
-    if not origin or not host or origin not in ("https://" + host, "http://localhost:" + host.rsplit(":",1)[-1]):
+    if not origin or not host:
+        raise HTTPException(403, "Invalid request origin")
+    try:
+        parsed = urlsplit(origin)
+        host_parts = urlsplit("//" + host)
+        host_name = (host_parts.hostname or "").lower()
+        loopback = host_name in ("localhost", "127.0.0.1", "::1")
+        if (parsed.scheme not in ("https", "http")
+                or (parsed.scheme != "https" and not loopback)
+                or (parsed.scheme == "http" and not loopback)
+                or (parsed.hostname or "").lower() != host_name
+                or (parsed.port or (443 if parsed.scheme == "https" else 80))
+                   != (host_parts.port or (443 if parsed.scheme == "https" else 80))
+                or parsed.path not in ("", "/") or parsed.query or parsed.fragment
+                or parsed.username is not None or parsed.password is not None):
+            raise HTTPException(403, "Invalid request origin")
+    except ValueError:
         raise HTTPException(403, "Invalid request origin")
 
 def current_user(request: Request):
@@ -254,7 +274,7 @@ def _saved_classification_export_rows():
     # Full saved master, not the 500-row search preview. Export only filled industries.
     with auth.connection() as db:
         return [dict(r) for r in db.execute("""SELECT company_name,industry,confidence,source,country
-            FROM classifications WHERE TRIM(COALESCE(industry,'')) <> ''
+            FROM classifications WHERE approved=1 AND TRIM(COALESCE(industry,'')) <> ''
             ORDER BY company_name COLLATE NOCASE""")]
 
 @app.get("/api/admin/classifications/export")
@@ -274,7 +294,7 @@ def classification_unique_verticals(user=Depends(current_user)):
     with auth.connection() as db:
         rows=db.execute("""SELECT MIN(TRIM(industry)) AS industry,
             COUNT(DISTINCT LOWER(TRIM(company_name))) AS organizations
-            FROM classifications WHERE TRIM(COALESCE(industry,'')) <> ''
+            FROM classifications WHERE approved=1 AND TRIM(COALESCE(industry,'')) <> ''
             GROUP BY LOWER(TRIM(industry)) ORDER BY industry COLLATE NOCASE""").fetchall()
     output=workbook_bytes([("Unique industry verticals",
         ["industry_vertical","classified_organizations"],
@@ -399,7 +419,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     Classification is an exact normalized company-name match, not inferred.
     """
     if role not in ("primary","shipper","consignee"):
-        raise HTTPException(400,"Role must be shipper or consignee")
+        raise HTTPException(400,"Role must be primary, shipper, or consignee")
     companies,lobs=allowed_scope(user,company,lob)
     from app.crossfilter import conditions
     try:
@@ -408,13 +428,14 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
         raise HTTPException(400,str(exc))
     with auth.connection() as db:
         classifications=[dict(r) for r in db.execute(
-            "SELECT company_name,industry FROM classifications")]
+            "SELECT company_name,industry FROM classifications WHERE approved=1")]
     import json
     # JSON recordset avoids exposing the independent SQLite database to PostgreSQL.
     params["classifications"]=json.dumps(classifications)
     counterparty=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     sql=f"""WITH approved AS (
-       SELECT LOWER(BTRIM(company_name)) AS normalized_name, MIN(industry) AS industry
+       SELECT LOWER(BTRIM(company_name)) AS normalized_name,
+              CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) ELSE NULL END AS industry
        FROM jsonb_to_recordset(CAST(:classifications AS jsonb))
          AS x(company_name text,industry text)
        GROUP BY LOWER(BTRIM(company_name))
@@ -450,13 +471,14 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     try: where,params=conditions(companies,lobs,{"start":start,"end":end})
     except ValueError as exc: raise HTTPException(400,str(exc))
     with auth.connection() as db:
-        mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications")]
+        mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications WHERE approved=1")]
     import json
     params["mapping"]=json.dumps(mapping)
     params["industry"]=industry
     field=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     base=f"""WITH industry_map AS (
-       SELECT LOWER(BTRIM(company_name)) AS name,MIN(industry) AS industry
+       SELECT LOWER(BTRIM(company_name)) AS name,
+              CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) ELSE NULL END AS industry
        FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text)
        GROUP BY 1
     ), scoped AS (
@@ -488,57 +510,134 @@ def classification_status_api(user=Depends(current_user)):
 
 @app.get("/api/classifications/pending-template")
 def classification_pending_template(user=Depends(current_user)):
-    rows=auth.pending_classification_names()
-    # If no research master is loaded, use authorized shipment counterparties.
-    if not rows:
-        companies,lobs=allowed_scope(user,None,None)
-        engine=scoped_engine()
-        try:
-            statement=text("""SELECT company_name FROM (
-              SELECT NULLIF(BTRIM(shipper),'') AS company_name
-              FROM ai_insights_source.current_shipments
-              WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
-              UNION
-              SELECT NULLIF(BTRIM(consignee),'') AS company_name
-              FROM ai_insights_source.current_shipments
-              WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
-            ) names WHERE company_name IS NOT NULL ORDER BY company_name LIMIT 10000""")
-            with engine.connect() as conn:
-                names=[row[0] for row in conn.execute(statement,{"companies":companies,"lobs":lobs})]
-        finally:
-            engine.dispose()
-        with auth.connection() as db:
-            classified={r[0].casefold() for r in db.execute("SELECT company_name FROM classifications")}
-        rows=[{"company_name":name} for name in names if name.casefold() not in classified]
-    # Enrich pending countries using the authorized organization lookup.
-    companies,_=allowed_scope(user,None,None)
+    # Include research entities, every previously classified record after reset, and
+    # every unique shipper/consignee in the authorised shipment scope.
+    rows=auth.pending_classification_names(limit=10000)
+    merged={r["company_name"].strip().casefold():{
+        "company_name":r["company_name"],"country":r.get("country") or "",
+        "research_status":r.get("research_status") or "Pending","appearances":r.get("appearances") or 0,
+        "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":"","job_owner_names":""}
+        for r in rows if r.get("company_name")}
+    companies,lobs=allowed_scope(user,None,None)
+    engine=scoped_engine()
     try:
-        engine=scoped_engine()
-        try:
-            with engine.connect() as conn:
-                matches=conn.execute(text("SELECT name,country FROM ai_insights_source.organization_country WHERE company=ANY(:companies)"),{"companies":companies}).all()
-            known={}
-            ambiguous=set()
-            for name,country in matches:
-                key=name.strip().casefold()
-                if key in known and known[key].casefold()!=country.casefold(): ambiguous.add(key)
-                known[key]=country
-            for row in rows:
-                key=row["company_name"].strip().casefold()
-                if not row.get("country") and key not in ambiguous:
-                    row["country"]=known.get(key,"")
-        finally:
-            engine.dispose()
-    except Exception:
-        pass
-    output=workbook_bytes([("Pending classification",
-        ["company_name","industry","confidence","source","country"],
-        [[r["company_name"],"","","",r.get("country") or ""] for r in rows]),
-        ("AI Prompt",["Instructions"],[["You are a careful B2B freight-forwarding company researcher. Complete ONLY Sheet 1 (Pending classification) in this workbook. For each firm, research the legal or operational country of the named entity, its primary industry vertical, confidence (low/medium/high), and a verifiable source URL or evidence note. Do not infer country from shipment origin/destination, a generic name, or the freight forwarder. Distinguish similarly named entities and subsidiaries by country; where uncertain, leave country or industry blank and set confidence low with a brief explanation in source. Never invent evidence. Preserve company_name exactly, the five column names and their order (company_name, industry, confidence, source, country), and all original rows. Do not add columns to Sheet 1, remove rows, or modify its headers. Leave Sheet 2 unchanged. Output one completed XLSX containing up to 10,000 organization rows, ready for direct upload to AI Insights. Do not split into 500-row files. Keep all original rows, including unresolved firms; blank industry is permitted and those rows will remain pending on import. For every classified row, fill industry, confidence (low/medium/high), and a meaningful evidence source; do not fabricate classifications. Use concise industry categories and full country names, not ISO codes. A blank country is acceptable if it cannot be verified."]])])
+        # This expanded source contract requires the view to expose ERP Sales Person separately from job_owner.
+        statement=text("""WITH parties AS (
+          SELECT NULLIF(BTRIM(shipper),'') AS company_name,
+                 COUNT(*) AS shipper_appearances,0::bigint AS consignee_appearances,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
+          FROM ai_insights_source.current_shipments
+          WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+            AND NULLIF(BTRIM(shipper),'') IS NOT NULL
+          GROUP BY 1
+          UNION ALL
+          SELECT NULLIF(BTRIM(consignee),'') AS company_name,
+                 0::bigint AS shipper_appearances,COUNT(*) AS consignee_appearances,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salesperson_names,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owner_names
+          FROM ai_insights_source.current_shipments
+          WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+            AND NULLIF(BTRIM(consignee),'') IS NOT NULL
+          GROUP BY 1
+        )
+        SELECT company_name,SUM(shipper_appearances) AS shipper_appearances,
+               SUM(consignee_appearances) AS consignee_appearances,
+               STRING_AGG(DISTINCT salesperson_names,'; ') AS salesperson_names,
+               STRING_AGG(DISTINCT job_owner_names,'; ') AS job_owner_names
+        FROM parties GROUP BY company_name ORDER BY company_name LIMIT 20000""")
+        with engine.connect() as conn:
+            for r in conn.execute(statement,{"companies":companies,"lobs":lobs}).mappings():
+                key=r["company_name"].strip().casefold()
+                item=merged.setdefault(key,{"company_name":r["company_name"],"country":"",
+                    "research_status":"Shipment source","appearances":0,
+                    "shipper_appearances":0,"consignee_appearances":0,"salesperson_names":"","job_owner_names":""})
+                item["shipper_appearances"]=int(r["shipper_appearances"] or 0)
+                item["consignee_appearances"]=int(r["consignee_appearances"] or 0)
+                item["appearances"]=max(item["appearances"],item["shipper_appearances"]+item["consignee_appearances"])
+                item["salesperson_names"]=(r["salesperson_names"] or "")[:1000]
+                item["job_owner_names"]=(r["job_owner_names"] or "")[:1000]
+    except Exception as exc:
+        logger.warning("Pending workbook shipment enrichment unavailable (%s)",type(exc).__name__)
+        raise HTTPException(503,"The expanded read-only shipment view is not ready. Apply deployment/04_readonly_role_template.sql before downloading the full reclassification workbook.")
+    finally:
+        engine.dispose()
+    output=workbook_bytes([
+        ("Pending classification",
+         ["company_name","industry","confidence","source","country","shipper_appearances",
+          "consignee_appearances","salesperson_names","job_owner_names","research_status","total_appearances"],
+         [[r["company_name"],"","","",r.get("country") or "",r.get("shipper_appearances",0),
+           r.get("consignee_appearances",0),r.get("salesperson_names",""),r.get("job_owner_names",""),r.get("research_status","Pending"),
+           r.get("appearances",0)] for r in sorted(merged.values(),key=lambda x:(-int(x.get("appearances") or 0),x["company_name"].casefold()))[:20000]]),
+        ("AI Prompt",["Instructions"],[[
+          "Complete Sheet 1 only. Preserve every row and every existing column. Fill industry only when supported by credible evidence. "
+          "Use the exact 15-category master below; do not create synonyms, broader categories, or additional labels. "
+          "Use shipper/consignee appearance counts and salesperson/job-owner names as context, not as proof of industry. "
+          "Do not infer an organisation's industry from shipment lane, freight forwarder, or salesperson. "
+          "Keep uncertain organisations blank in industry and explain the uncertainty in source. "
+          "Keep confidence low/medium/high and provide a verifiable source URL or specific evidence note for every classified row. "
+          "Do not change company_name or delete unresolved rows.\n\n"+INDUSTRY_PROMPT
+        ]])
+    ])
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
                  "Cache-Control":"no-store"})
+
+@app.get("/api/admin/classifications/reset-preview")
+def classifications_reset_preview(user=Depends(require_admin)):
+    return auth.classification_reset_preview()
+
+@app.post("/api/admin/classifications/reset-for-reclassification")
+async def classifications_reset_for_reclassification(request:Request,user=Depends(require_admin)):
+    same_origin(request)
+    payload=await request.json()
+    if not isinstance(payload,dict) or payload.get("confirmation")!="RESET_ALL_CLASSIFICATIONS":
+        raise HTTPException(400,"Explicit confirmation RESET_ALL_CLASSIFICATIONS is required")
+    batch_id=payload.get("batch_id")
+    if not isinstance(batch_id,str) or not batch_id.strip():
+        raise HTTPException(400,"A unique reset batch_id is required")
+    try:
+        return auth.reset_classifications_for_reclassification(user["id"],batch_id.strip())
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+
+@app.get("/api/classifications/salesperson-industry")
+def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=None,end:str|None=None,
+                         user=Depends(current_user)):
+    companies,lobs=allowed_scope(user,company,lob)
+    with auth.connection() as db:
+        mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications WHERE approved=1 AND industry<>''")]
+    import json
+    from app.crossfilter import conditions
+    try: where,params=conditions(companies,lobs,{"start":start,"end":end})
+    except ValueError as exc: raise HTTPException(400,str(exc))
+    params["mapping"]=json.dumps(mapping)
+    engine=scoped_engine()
+    try:
+        with engine.connect() as conn:
+            rows=[dict(r) for r in conn.execute(text("""WITH industry_map AS (
+              SELECT LOWER(BTRIM(company_name)) AS name,
+                     CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry
+              FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text)
+              GROUP BY 1
+            )
+            SELECT COALESCE(NULLIF(BTRIM(s.salesperson),''),'Unassigned') AS salesperson,
+                   COALESCE(m.industry,'Unclassified') AS industry,
+                   COUNT(*) AS shipment_rows,COUNT(DISTINCT s.key) AS distinct_shipments,
+                   COUNT(DISTINCT NULLIF(BTRIM(s.shipper),'')) AS distinct_shippers,
+                   COUNT(DISTINCT NULLIF(BTRIM(s.consignee),'')) AS distinct_consignees
+            FROM ai_insights_source.current_shipments s
+            LEFT JOIN industry_map m
+              ON LOWER(BTRIM(CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END))=m.name
+            WHERE """+where+"""
+            GROUP BY 1,2 ORDER BY shipment_rows DESC,salesperson,industry"""),params).mappings()]
+    except Exception as exc:
+        logger.warning("Salesperson industry query unavailable (%s)",type(exc).__name__)
+        raise HTTPException(503,"Salesperson source field is not yet available. Apply the expanded read-only shipment view.")
+    finally:
+        engine.dispose()
+    return {"rows":rows,"basis":"job_owner exposed as salesperson; export attributed to shipper and import to consignee; approved classifications only."}
 
 @app.get("/api/classifications")
 def classifications_api(q: str="",user=Depends(current_user)):
@@ -551,10 +650,19 @@ async def classification_upsert(request: Request,user=Depends(require_classifica
     payload=await request.json()
     try:
         auth.classification_save(user["id"],payload["company_name"],payload["industry"],
-            payload["confidence"],payload["source"],True,payload.get("country",""))
-        return {"ok":True}
+            payload["confidence"],payload["source"],False,payload.get("country",""))
+        return {"ok":True,"status":"pending_review"}
     except (ValueError,KeyError,TypeError,AttributeError) as exc:
         raise HTTPException(400,str(exc))
+
+@app.post("/api/admin/classifications/{classification_id}/approve")
+def classification_approve(classification_id: int, request: Request, user=Depends(require_admin)):
+    same_origin(request)
+    try:
+        approved=auth.approve_classification(user["id"],classification_id)
+        return {"ok":True,"approved":approved}
+    except ValueError as exc:
+        raise HTTPException(404,str(exc))
 
 @app.get("/api/admin/reconciliation")
 def reconciliation(user=Depends(require_admin)):

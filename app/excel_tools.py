@@ -3,6 +3,9 @@ from io import BytesIO
 from openpyxl import Workbook,load_workbook
 from openpyxl.styles import Font,PatternFill,Alignment
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.workbook.defined_name import DefinedName
+from app.industry_master import INDUSTRY_VERTICALS, validate_industry
 
 def safe_cell(value):
     if isinstance(value,str) and value.lstrip().startswith(("=","+","-","@")):
@@ -72,10 +75,27 @@ def parse_classification_xlsx(payload):
             continue
         if not all(isinstance(x,str) for x in (industry,confidence,source)):
             raise ValueError(f"Row {n}: classified rows require text industry, confidence and source")
-        rows.append((name,industry,confidence.strip().lower(),source,True,country))
+        if not validate_industry(industry):
+            raise ValueError(f"Row {n}: industry must exactly match one of the 15 approved verticals")
+        rows.append((name,industry,confidence.strip().lower(),source,False,country))
     return rows,skipped
 
 def classification_template():
-    return workbook_bytes([("Classification import",
+    payload=workbook_bytes([("Classification import",
         ["company_name","industry","confidence","source","country"],
-        [["Example Company","Example industry","medium","Verified source reference","India"]])])
+        [["Example Company",INDUSTRY_VERTICALS[0],"medium","Verified source reference","India"]])])
+    wb=load_workbook(BytesIO(payload))
+    ws=wb["Classification import"]
+    master=wb.create_sheet("Industry Master")
+    for label in INDUSTRY_VERTICALS:
+        master.append([label])
+    master.sheet_state="hidden"
+    wb.defined_names.add(DefinedName("IndustryVerticals",attr_text="'Industry Master'!$A$1:$A$15"))
+    validation=DataValidation(type="list",formula1="=IndustryVerticals",allow_blank=True)
+    validation.error="Select one of the 15 approved industry verticals."
+    validation.errorTitle="Invalid industry"
+    validation.showErrorMessage=True
+    ws.add_data_validation(validation)
+    validation.add("B2:B10001")
+    out=BytesIO();wb.save(out)
+    return out.getvalue()

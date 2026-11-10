@@ -15,7 +15,15 @@ class CrossFilterTests(unittest.TestCase):
         self.assertIn("shipper=ANY(:f_shipper)",where)
         self.assertNotIn("Acme",where)
         self.assertEqual(params["f_shipper"],["Acme"])
-    def test_multi_select(self):\n        where,params=conditions(["NG","NCS"],["AE","AI"],{"origin":"Mumbai,Hong Kong"})\n        self.assertEqual(params["f_origin"],["Mumbai","Hong Kong"])\n        self.assertIn("origin=ANY(:f_origin)",where)\n    def test_invalid_date(self):
+    def test_multi_select(self):
+        where,params=conditions(["NG","NCS"],["AE","AI"],{"origin":"Mumbai,Hong Kong"})
+        self.assertEqual(params["f_origin"],["Mumbai","Hong Kong"])
+        self.assertIn("origin=ANY(:f_origin)",where)
+
+    def test_inverted_date_range(self):
+        with self.assertRaisesRegex(ValueError, "Start date"):
+            conditions(["NG"],["AE"],{"start":"2026-11-10","end":"2026-11-01"})
+    def test_invalid_date(self):
         with self.assertRaises(ValueError):
             conditions(["NG"],["AE"],{"start":"yesterday"})
     def test_unknown_scope(self):
@@ -24,8 +32,10 @@ class CrossFilterTests(unittest.TestCase):
 
 class ExcelTests(unittest.TestCase):
     def test_template_roundtrip(self):
-        rows=parse_classification_xlsx(classification_template())
+        rows,skipped=parse_classification_xlsx(classification_template())
+        self.assertEqual(skipped,0)
         self.assertEqual(rows[0][0],"Example Company")
+        self.assertEqual(rows[0][1],"Automotive & Auto Components")
         self.assertFalse(rows[0][4])
     def test_export_tabs(self):
         data={"overview":{"shipments":1,"shippers":1,"consignees":1,"teus":0,"gross_weight":0},

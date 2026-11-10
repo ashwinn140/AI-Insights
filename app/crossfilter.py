@@ -33,6 +33,8 @@ def conditions(companies,lobs,filters):
             except ValueError: raise ValueError("Invalid date")
             where.append("shipment_date "+(">=" if key=="start" else "<=")+f" :{key}")
             params[key]=value
+    if start and end and start > end:
+        raise ValueError("Start date must be on or before end date")
     return " AND ".join(where),params
 
 def query_rows(engine,companies,lobs,filters,limit=25):
