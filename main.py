@@ -102,7 +102,8 @@ app = FastAPI(title="AI Insights Operations", lifespan=lifespan,
 def healthz():
     return {"status": "running", "product": "AI Insights",
             "data_access": "verified" if _database_verified else "disabled",
-            "production_ready": False}
+            "production_ready": bool(_database_verified),
+            "readiness_basis": "restricted shipment source connection and required columns"}
 
 def same_origin(request: Request):
     """Reject cross-origin mutations; allow plain HTTP only on loopback hosts."""
@@ -749,7 +750,7 @@ def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=
         mapping=[dict(r) for r in db.execute("SELECT company_name,industry FROM classifications WHERE TRIM(COALESCE(industry,''))<>''")]
     import json
     from app.crossfilter import conditions
-    try: where,params=conditions(companies,lobs,{"start":start,"end":end})
+    try: where,params=conditions(companies,lobs,dashboard_filters(origin=origin,destination=destination,shipper=shipper,consignee=consignee,branch=branch,start=start,end=end))
     except ValueError as exc: raise HTTPException(400,str(exc))
     params["mapping"]=json.dumps(mapping)
     engine=scoped_engine()
