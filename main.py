@@ -599,7 +599,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
     try:
         with engine.connect() as conn:
             rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
-            count_sql=f"""WITH industry_map AS (SELECT LOWER(BTRIM(company_name)) AS normalized_name, CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text,country text,confidence text,source text) GROUP BY 1) SELECT COUNT(*) FROM (SELECT 1 FROM ai_insights_source.current_shipments s LEFT JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name WHERE {where} AND m.industry=:industry GROUP BY {party}) q"""
+            count_sql=f"""WITH industry_map AS (SELECT LOWER(BTRIM(company_name)) AS normalized_name, CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry FROM jsonb_to_recordset(CAST(:mapping AS jsonb)) AS x(company_name text,industry text,country text,confidence text,source text) GROUP BY 1) SELECT COUNT(*) FROM (SELECT 1 FROM ai_insights_source.current_shipments s LEFT JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name WHERE {where} AND m.industry=:industry AND NULLIF(BTRIM({party}),'') IS NOT NULL GROUP BY {party}) q"""
             contributor_total=int(conn.execute(text(count_sql),params).scalar() or 0)
             summary_sql=f"""WITH industry_map AS (
               SELECT LOWER(BTRIM(company_name)) AS normalized_name,
