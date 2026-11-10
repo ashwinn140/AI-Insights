@@ -72,9 +72,9 @@ class IndependentAuthTests(unittest.TestCase):
             auth.add_user(admin["id"], "bad@example.com", "Bad",
                           "another-long-password-123", "viewer", ["OTHER"], ["AE"])
 
-    def test_last_administrator_cannot_be_disabled(self):
+    def test_administrator_cannot_disable_own_account(self):
         admin = self.create_admin()
-        with self.assertRaisesRegex(ValueError, "last administrator"):
+        with self.assertRaisesRegex(ValueError, "own administrator access"):
             auth.edit_user(admin["id"], admin["id"], active=False)
 
 
