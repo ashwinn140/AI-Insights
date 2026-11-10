@@ -315,7 +315,9 @@ def pending_classification_names(limit=50000):
     """Return research entities plus all reset/pending saved organisations; never invent industries."""
     with connection() as db:
         return [dict(row) for row in db.execute("""
-            SELECT company_name,country,research_status,appearances
+            SELECT company_name,
+                   COALESCE(MAX(NULLIF(TRIM(country),'')),'') AS country,
+                   research_status,MAX(appearances) AS appearances
             FROM (
                 SELECT r.original_name AS company_name,
                        COALESCE(r.country,'') AS country,

@@ -27,6 +27,26 @@ class IndependentAuthTests(unittest.TestCase):
             self.assertTrue(auth.provision_initial_admin())
         return auth.list_users()[0]
 
+
+    def test_pending_names_keep_nonblank_country_when_duplicate_entities_are_grouped(self):
+        with auth.connection() as db:
+            db.execute(
+                "INSERT INTO research_entities "
+                "(entity_key,original_name,country,verification_status,appearances,imported_at) "
+                "VALUES (?,?,?,?,?,?)",
+                ("duplicate-blank", "Duplicate Company Ltd", "", "Unknown", 2, 1),
+            )
+            db.execute(
+                "INSERT INTO research_entities "
+                "(entity_key,original_name,country,verification_status,appearances,imported_at) "
+                "VALUES (?,?,?,?,?,?)",
+                ("duplicate-india", "Duplicate Company Ltd", "India", "Verified", 5, 1),
+            )
+        pending = auth.pending_classification_names()
+        row = next(x for x in pending if x["company_name"] == "Duplicate Company Ltd")
+        self.assertEqual(row["country"], "India")
+        self.assertEqual(row["appearances"], 5)
+
     def test_bootstrap_provisions_one_admin_only(self):
         admin = self.create_admin()
         self.assertEqual(admin["role"], "admin")
