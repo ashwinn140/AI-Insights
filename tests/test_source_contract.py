@@ -31,3 +31,8 @@ def test_salesperson_analytics_uses_dedicated_source_field_and_pending_export_co
     assert "salesperson_names" in MAIN
     assert "job_owner_names" in MAIN
     assert "expanded read-only shipment view is not ready" in MAIN
+
+def test_startup_verifies_expanded_shipment_fields():
+    assert 'required_columns = ["shipper","consignee","carrier","job_owner","salesperson"]' in MAIN
+    assert "read-only analytics enabled" in MAIN
+    assert "data API disabled" not in MAIN
