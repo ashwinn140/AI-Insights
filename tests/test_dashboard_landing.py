@@ -25,3 +25,17 @@ if __name__ == "__main__":
         assert "location.replace('/classifications')" not in source
         assert "link.getAttribute('href')" in source
         assert "['/companies','/opportunities'].includes" not in source
+
+    def test_guide_route_and_business_outcome_indicators_are_wired(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.py").read_text()
+        guide = (root / "app" / "guide.html").read_text()
+        ui = (root / "app" / "ui.js").read_text()
+        home = (root / "app" / "industry_explorer.html").read_text()
+        self.assertIn('@app.get("/guide"', main)
+        self.assertIn('Business outcomes', guide)
+        self.assertIn('Financial boundary', guide)
+        self.assertIn('addBusinessIndicators', ui)
+        self.assertIn('Guide & Business Outcomes', ui)
+        self.assertIn('/assets/ui.js?v=3', home)
