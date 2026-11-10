@@ -316,7 +316,6 @@ def pending_classification_names(limit=10000):
             WHERE NOT EXISTS (
                 SELECT 1 FROM classifications c
                 WHERE c.company_name = r.original_name COLLATE NOCASE
-                  AND c.approved=1
             )
             ORDER BY COALESCE(r.appearances,0) DESC, r.original_name
             LIMIT ?
@@ -334,7 +333,7 @@ def classification_industry_status():
         pending_review=db.execute("SELECT COUNT(*) FROM classifications WHERE approved=0").fetchone()[0]
         pending=db.execute("""SELECT COUNT(*) FROM research_entities r
             WHERE NOT EXISTS (SELECT 1 FROM classifications c
-            WHERE c.company_name=r.original_name COLLATE NOCASE AND c.approved=1)""").fetchone()[0]
+            WHERE c.company_name=r.original_name COLLATE NOCASE)""").fetchone()[0]
     return {"industries":industries,"classified":total,"pending_review":pending_review,
             "research_pending":pending}
 
