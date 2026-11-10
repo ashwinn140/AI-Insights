@@ -538,7 +538,7 @@ def classification_contributor_options(company:str|None=None,lob:str|None=None,
 def classification_contributors(industry:str,company:str|None=None,lob:str|None=None,
         start:str|None=None,end:str|None=None,role:str="primary",
         origin:str|None=None,destination:str|None=None,shipper:str|None=None,
-        consignee:str|None=None,branch:str|None=None,user=Depends(current_user)):
+        consignee:str|None=None,branch:str|None=None,limit:int=500,user=Depends(current_user)):
     """Underlying attributed organisations, with evidence and shipment calculations."""
     if role not in ("primary","shipper","consignee"): raise HTTPException(400,"Invalid counterparty role")
     if not industry or len(industry)>100: raise HTTPException(400,"Invalid industry")
@@ -552,7 +552,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
         mapping=[dict(r) for r in db.execute("""SELECT company_name,industry,country,confidence,source
             FROM classifications WHERE TRIM(COALESCE(industry,''))<>''""")]
     import json
-    params["mapping"]=json.dumps(mapping); params["industry"]=industry; params["role"]=role
+    params["mapping"]=json.dumps(mapping); params["industry"]=industry; params["role"]=role; params["limit"]=min(max(int(limit),1),50000)
     party=("CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END"
            if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     other=("CASE WHEN s.report_type IN ('AE','OE') THEN s.consignee ELSE s.shipper END"
@@ -583,7 +583,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
            STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners,
            MIN(country) AS country, MIN(confidence) AS confidence, MIN(evidence) AS evidence
     FROM attributed WHERE industry=:industry AND contributor IS NOT NULL
-    GROUP BY contributor ORDER BY shipment_rows DESC,contributor LIMIT 500"""
+    GROUP BY contributor ORDER BY shipment_rows DESC,contributor LIMIT :limit"""
     engine=scoped_engine()
     try:
         with engine.connect() as conn:
@@ -629,8 +629,8 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
 def classification_contributors_export(industry:str,company:str|None=None,lob:str|None=None,
         start:str|None=None,end:str|None=None,role:str="primary",origin:str|None=None,
         destination:str|None=None,shipper:str|None=None,consignee:str|None=None,
-        branch:str|None=None,user=Depends(current_user)):
-    data=classification_contributors(industry,company,lob,start,end,role,origin,destination,shipper,consignee,branch,user)
+        branch:str|None=None,limit:int=50000,user=Depends(current_user)):
+    data=classification_contributors(industry,company,lob,start,end,role,origin,destination,shipper,consignee,branch,limit,user)
     rows=data["rows"]; records=data["records"]; summary=data["record_summary"]
     output=workbook_bytes([
       ("Calculation",["Metric","Value"],[[k,v] for k,v in summary.items()]+[[k,v] for k,v in data["calculation"].items()]),
