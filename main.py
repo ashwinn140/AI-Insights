@@ -817,14 +817,17 @@ def salesperson_industry_export(company:str|None=None,lob:str|None=None,start:st
        headers={"Content-Disposition":"attachment; filename=ai-insights-salesperson-industry-mix.xlsx","Cache-Control":"no-store"})
 
 @app.get("/api/classifications")
-def classifications_api(response: Response,q: str="",user=Depends(current_user)):
+def classifications_api(response: Response,q: str="",offset:int=0,limit:int=10,user=Depends(current_user)):
     if len(q)>100: raise HTTPException(400,"Search too long")
     # Classification data changes immediately after Excel import; never serve a stale register.
     if response is not None:
         response.headers["Cache-Control"]="no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"]="no-cache"
         response.headers["Expires"]="0"
-    return {"results":auth.classification_list(q,limit=10000)}
+    page_limit=min(max(int(limit),1),100)
+    page_offset=max(int(offset),0)
+    return {"results":auth.classification_list(q,limit=page_limit,offset=page_offset),
+            "total":auth.classification_count(q),"limit":page_limit,"offset":page_offset}
 
 @app.post("/api/classifications/save")
 @app.post("/api/admin/classifications")
