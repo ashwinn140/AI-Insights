@@ -72,7 +72,7 @@ def parse_classification_xlsx(payload):
             continue
         if not all(isinstance(x,str) for x in (industry,confidence,source)):
             raise ValueError(f"Row {n}: classified rows require text industry, confidence and source")
-        rows.append((name,industry,confidence.strip().lower(),source,True,country))
+        rows.append((name,industry,confidence.strip().lower(),source,False,country))
     return rows,skipped
 
 def classification_template():
