@@ -309,7 +309,7 @@ async def classification_xlsx_import(request:Request,file:UploadFile=File(...),u
     same_origin(request)
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(400,"XLSX file required")
-    payload=await file.read(8*1024*1024+1)
+    payload=await file.read(20*1024*1024+1)
     try:
         rows,skipped=parse_classification_xlsx(payload)
         count=auth.classification_import(user["id"],rows)
@@ -512,7 +512,7 @@ def classification_status_api(user=Depends(current_user)):
 def classification_pending_template(user=Depends(current_user)):
     # Include research entities, every previously classified record after reset, and
     # every unique shipper/consignee in the authorised shipment scope.
-    rows=auth.pending_classification_names(limit=10000)
+    rows=auth.pending_classification_names(limit=50000)
     merged={r["company_name"].strip().casefold():{
         "company_name":r["company_name"],"country":r.get("country") or "",
         "research_status":r.get("research_status") or "Pending","appearances":r.get("appearances") or 0,
@@ -545,7 +545,7 @@ def classification_pending_template(user=Depends(current_user)):
                SUM(consignee_appearances) AS consignee_appearances,
                STRING_AGG(DISTINCT salesperson_names,'; ') AS salesperson_names,
                STRING_AGG(DISTINCT job_owner_names,'; ') AS job_owner_names
-        FROM parties GROUP BY company_name ORDER BY company_name LIMIT 20000""")
+        FROM parties GROUP BY company_name ORDER BY company_name LIMIT 50000""")
         with engine.connect() as conn:
             for r in conn.execute(statement,{"companies":companies,"lobs":lobs}).mappings():
                 key=r["company_name"].strip().casefold()
@@ -568,7 +568,7 @@ def classification_pending_template(user=Depends(current_user)):
           "consignee_appearances","salesperson_names","job_owner_names","research_status","total_appearances"],
          [[r["company_name"],"","","",r.get("country") or "",r.get("shipper_appearances",0),
            r.get("consignee_appearances",0),r.get("salesperson_names",""),r.get("job_owner_names",""),r.get("research_status","Pending"),
-           r.get("appearances",0)] for r in sorted(merged.values(),key=lambda x:(-int(x.get("appearances") or 0),x["company_name"].casefold()))[:20000]]),
+           r.get("appearances",0)] for r in sorted(merged.values(),key=lambda x:(-int(x.get("appearances") or 0),x["company_name"].casefold()))[:50000]]),
         ("AI Prompt",["Instructions"],[[
           "Complete Sheet 1 only. Preserve every row and every existing column. Fill industry only when supported by credible evidence. "
           "Use the exact 15-category master below; do not create synonyms, broader categories, or additional labels. "
