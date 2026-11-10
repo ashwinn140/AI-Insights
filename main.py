@@ -418,6 +418,12 @@ async def research_import_api(request:Request,file:UploadFile=File(...),user=Dep
     except ValueError as exc:
         raise HTTPException(400,str(exc))
 
+@app.get("/favicon.ico")
+def favicon():
+    """Serve the product favicon; browsers otherwise repeatedly request a missing icon."""
+    return Response(Path(__file__).parent.joinpath("app/favicon.svg").read_text(),
+                    media_type="image/svg+xml", headers={"Cache-Control":"public, max-age=86400"})
+
 @app.get("/assets/ui.css")
 def shared_ui_css():
     return Response(Path(__file__).parent.joinpath("app/ui.css").read_text(),media_type="text/css")
