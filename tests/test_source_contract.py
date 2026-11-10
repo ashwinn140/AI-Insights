@@ -17,3 +17,10 @@ def test_no_source_table_writes():
     sql = VIEW.lower()
     for statement in ("update public.shipments", "delete from public.shipments", "insert into public.shipments", "alter table public.shipments"):
         assert statement not in sql
+
+
+def test_salesperson_comes_from_erp_sales_person_extra_not_job_owner():
+    statement = VIEW.split("CREATE OR REPLACE VIEW",1)[1].split("FROM public.shipments",1)[0]
+    assert "extra ->> 'Sales Person' AS salesperson" in statement
+    assert "job_owner" in statement
+    assert "job_owner AS salesperson" not in statement
