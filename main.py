@@ -418,7 +418,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     Classification is an exact normalized company-name match, not inferred.
     """
     if role not in ("primary","shipper","consignee"):
-        raise HTTPException(400,"Role must be shipper or consignee")
+        raise HTTPException(400,"Role must be primary, shipper, or consignee")
     companies,lobs=allowed_scope(user,company,lob)
     from app.crossfilter import conditions
     try:
