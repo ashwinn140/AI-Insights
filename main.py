@@ -714,19 +714,16 @@ def classification_pending_template(user=Depends(current_user)):
         engine.dispose()
     output=classification_workbook_with_prompt([
         ("Pending classification",
-         ["company_name","industry","confidence","source","country","shipper_appearances",
-          "consignee_appearances","salesperson_names","job_owner_names","research_status","total_appearances"],
-         [[r["company_name"],"","","",r.get("country") or "",r.get("shipper_appearances",0),
-           r.get("consignee_appearances",0),r.get("salesperson_names",""),r.get("job_owner_names",""),r.get("research_status","Pending"),
-           r.get("appearances",0)] for r in sorted(merged.values(),key=lambda x:(-int(x.get("appearances") or 0),x["company_name"].casefold()))[:50000]]),
+         ["company_name","industry","confidence","source","country"],
+         [[r["company_name"],"","","",r.get("country") or ""] for r in sorted(
+             merged.values(),key=lambda x:(-int(x.get("appearances") or 0),x["company_name"].casefold())
+         )[:50000]]),
         ("AI Prompt",["Instructions"],[[
-          "Complete Sheet 1 only. Preserve every row and every existing column. Fill industry only when supported by credible evidence. "
-          "Use the exact 15-category master below; do not create synonyms, broader categories, or additional labels. "
-          "Use shipper/consignee appearance counts and salesperson/job-owner names as context, not as proof of industry. "
-          "Do not infer an organisation's industry from shipment lane, freight forwarder, or salesperson. "
-          "Keep uncertain organisations blank in industry and explain the uncertainty in source. "
-          "Keep confidence low/medium/high and provide a verifiable source URL or specific evidence note for every classified row. "
-          "Do not change company_name or delete unresolved rows.\n\n"+INDUSTRY_PROMPT
+          "Update only the fields that need classification. Keep company_name and the existing country unchanged. "
+          "Fill industry only when supported by credible company-specific evidence; use confidence low/medium/high "
+          "and add a verifiable source URL or concise evidence note. Leave industry blank when uncertain. "
+          "Do not add columns, rename companies, or remove rows. Use only the exact 15 industry verticals listed below.\n\n"
+          + INDUSTRY_PROMPT
         ]])
     ], "Pending classification")
     return StreamingResponse(BytesIO(output),
