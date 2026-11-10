@@ -317,7 +317,7 @@ def pending_classification_names(limit=50000):
         return [dict(row) for row in db.execute("""
             SELECT company_name,
                    COALESCE(MAX(NULLIF(TRIM(country),'')),'') AS country,
-                   MAX(research_status) AS research_status,
+                   research_status,
                    MAX(appearances) AS appearances
             FROM (
                 SELECT r.original_name AS company_name,
