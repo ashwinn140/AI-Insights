@@ -671,8 +671,10 @@ def classification_contributors_export(industry:str,company:str|None=None,lob:st
     rows=data["rows"]; records=data["records"]; summary=data["record_summary"]
     output=workbook_bytes([
       ("Calculation",["Metric","Value"],[[k,v] for k,v in summary.items()]+[[k,v] for k,v in data["calculation"].items()]),
-      ("Contributors",["Organisation","Industry vertical","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
-       [[r.get("organisation"),industry]+[r.get(k) for k in ["contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for r in rows]),
+      ("Top 10 Contributors",["Rank","Organisation","Industry vertical","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
+       [[i+1,r.get("organisation"),industry]+[r.get(k) for k in ["contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for i,r in enumerate(rows[:10])]),
+      ("Complete Contributor List",["Rank","Organisation","Industry vertical","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
+       [[i+1,r.get("organisation"),industry]+[r.get(k) for k in ["contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for i,r in enumerate(rows)]),
       ("Shipment records",["Shipment key","Shipment date","Company","Department","Industry vertical","Shipper","Consignee","Origin","Destination","Branch","ERP Sales Person","Job owner","Evidence","Confidence"],
        [[r.get("shipment_key"),r.get("shipment_date"),r.get("company"),r.get("report_type"),industry]+[r.get(k) for k in ["shipper","consignee","origin","destination","branch","salesperson","job_owner","evidence","confidence"]] for r in records]),
       ("Applied filters",["Filter","Value"],[[k,v] for k,v in {"industry":industry,"company":company,"department":lob,"role":role,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch,"start":start,"end":end}.items() if v])
