@@ -366,11 +366,11 @@ def discovery_export(kind: str,company: str|None=None,lob: str|None=None,
     engine=scoped_engine()
     try:
         if kind=="companies":
-            rows=search_companies(engine,companies=companies,lobs=lobs,term=q,limit=100,filters=filters)
+            rows=search_companies(engine,companies=companies,lobs=lobs,term=q,limit=10000,filters=filters)
             cols=["Company name","Role","Appearances","Distinct lanes"]
             fields=["name","role","appearances","lanes"]
         else:
-            rows=opportunity_candidates(engine,companies=companies,lobs=lobs,limit=100,filters=filters)
+            rows=opportunity_candidates(engine,companies=companies,lobs=lobs,limit=10000,filters=filters)
             cols=["Company name","Appearances","Distinct lanes"]
             fields=["name","appearances","lane_count"]
         output=workbook_bytes([(kind.title(),cols,[[r.get(k) for k in fields] for r in rows]),

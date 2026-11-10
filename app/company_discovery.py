@@ -7,7 +7,7 @@ def search_companies(engine, *, companies,lobs,term="",limit=50,filters=None):
     term=(term or "").strip()
     if len(term)>100: raise ValueError("Search too long")
     where,params=conditions(companies,lobs,filters or {})
-    params.update(term=term,limit=min(limit,100))
+    params.update(term=term,limit=min(max(int(limit),1),10000))
     q=text(f"""
         WITH names AS (
           SELECT NULLIF(BTRIM(shipper),'') AS name,'shipper' AS role,
@@ -28,7 +28,7 @@ def search_companies(engine, *, companies,lobs,term="",limit=50,filters=None):
 def opportunity_candidates(engine, *, companies,lobs,limit=50,filters=None):
     """Participation and lane breadth are indicators only, not verified new prospects."""
     where,params=conditions(companies,lobs,filters or {})
-    params["limit"]=min(limit,100)
+    params["limit"]=min(max(int(limit),1),10000)
     q=text(f"""
         WITH names AS (
           SELECT NULLIF(BTRIM(shipper),'') AS name,origin,destination
