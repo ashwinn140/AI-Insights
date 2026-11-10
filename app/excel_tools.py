@@ -139,6 +139,6 @@ def classification_workbook_with_prompt(sheets, import_sheet_title):
 
 def classification_template():
     return classification_workbook_with_prompt([
-        ("Classification import",["company_name","industry","confidence","source","country"],
+        ("Pending classification",["company_name","industry","confidence","source","country"],
          [["Example Company",INDUSTRY_VERTICALS[0],"medium","Verified source reference","India"]])
-    ],"Classification import")
+    ],"Pending classification")
