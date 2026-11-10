@@ -16,7 +16,7 @@ class DashboardLandingTests(unittest.TestCase):
         self.assertIn("location.replace('/')", source)
 
 
-    def test_discovery_pages_remain_in_primary_navigation():
+    def test_discovery_pages_remain_in_primary_navigation(self):
         source = Path("app/ui.js").read_text()
         assert "location.replace('/classifications')" not in source
         assert "link.getAttribute('href')" in source
