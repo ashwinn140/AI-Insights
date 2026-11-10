@@ -18,3 +18,10 @@ class DashboardLandingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_discovery_pages_remain_in_primary_navigation():
+        source = Path("app/ui.js").read_text()
+        assert "location.replace('/classifications')" not in source
+        assert "link.getAttribute('href')" in source
+        assert "['/companies','/opportunities'].includes" not in source

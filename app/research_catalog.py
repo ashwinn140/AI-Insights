@@ -85,7 +85,7 @@ def research_summary():
 def research_list(q="",status="",industry="",limit=100,offset=0):
     q=q.strip()[:100]
     with auth.connection() as db:
-        rows=db.execute("""SELECT entity_key,original_name,normalized_name,canonical_entity,
+        rows=db.execute("""SELECT entity_key,original_name,normalized_name,canonical_entity,country,
           parent_group,alias_group,industry,sub_industry,activity_type,
           evidence_url,confidence,verification_status,appearances,review_notes,
           provisional_industry,unresolved_reason

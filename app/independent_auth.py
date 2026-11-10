@@ -322,6 +322,11 @@ def pending_classification_names(limit=50000):
                        COALESCE(r.verification_status,'Unknown') AS research_status,
                        COALESCE(r.appearances,0) AS appearances
                 FROM research_entities r
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM classifications c
+                    WHERE c.company_name = r.original_name COLLATE NOCASE
+                      AND TRIM(COALESCE(c.industry,'')) <> ''
+                )
                 UNION ALL
                 SELECT c.company_name AS company_name,c.country AS country,
                        'Previously classified — reset/pending' AS research_status,0 AS appearances
