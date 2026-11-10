@@ -333,6 +333,10 @@ async def classification_xlsx_import(request:Request,file:UploadFile=File(...),u
         return {"imported":count,"skipped_unclassified":skipped}
     except ValueError as exc: raise HTTPException(400,str(exc))
 
+@app.get("/guide", response_class=HTMLResponse)
+def guide_page(user=Depends(current_user)):
+    return Path(__file__).parent.joinpath("app/guide.html").read_text()
+
 @app.get("/companies",response_class=HTMLResponse)
 def companies_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/discovery.html").read_text()
