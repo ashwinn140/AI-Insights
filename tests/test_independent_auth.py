@@ -32,15 +32,15 @@ class IndependentAuthTests(unittest.TestCase):
         with auth.connection() as db:
             db.execute(
                 "INSERT INTO research_entities "
-                "(original_name,country,verification_status,appearances) "
-                "VALUES (?,?,?,?)",
-                ("Duplicate Company Ltd", "", "Unknown", 2),
+                "(entity_key,original_name,country,verification_status,appearances,imported_at) "
+                "VALUES (?,?,?,?,?,?)",
+                ("duplicate-blank", "Duplicate Company Ltd", "", "Unknown", 2, 1),
             )
             db.execute(
                 "INSERT INTO research_entities "
-                "(original_name,country,verification_status,appearances) "
-                "VALUES (?,?,?,?)",
-                ("Duplicate Company Ltd", "India", "Verified", 5),
+                "(entity_key,original_name,country,verification_status,appearances,imported_at) "
+                "VALUES (?,?,?,?,?,?)",
+                ("duplicate-india", "Duplicate Company Ltd", "India", "Verified", 5, 1),
             )
         pending = auth.pending_classification_names()
         row = next(x for x in pending if x["company_name"] == "Duplicate Company Ltd")
