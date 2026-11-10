@@ -22,7 +22,8 @@ class CrossFilterTests(unittest.TestCase):
 
     def test_inverted_date_range(self):
         with self.assertRaisesRegex(ValueError, "Start date"):
-            conditions(["NG"],["AE"],{"start":"2026-11-10","end":"2026-11-01"})\n    def test_invalid_date(self):
+            conditions(["NG"],["AE"],{"start":"2026-11-10","end":"2026-11-01"})
+    def test_invalid_date(self):
         with self.assertRaises(ValueError):
             conditions(["NG"],["AE"],{"start":"yesterday"})
     def test_unknown_scope(self):
