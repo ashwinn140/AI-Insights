@@ -16,10 +16,6 @@ class DashboardLandingTests(unittest.TestCase):
         self.assertIn("location.replace('/')", source)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_discovery_pages_remain_in_primary_navigation():
         source = Path("app/ui.js").read_text()
         assert "location.replace('/classifications')" not in source
@@ -39,3 +35,7 @@ if __name__ == "__main__":
         self.assertIn('addBusinessIndicators', ui)
         self.assertIn('Guide & Business Outcomes', ui)
         self.assertIn('/assets/ui.js?v=3', home)
+
+
+if __name__ == "__main__":
+    unittest.main()
