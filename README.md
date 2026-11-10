@@ -41,3 +41,8 @@ python -m compileall -q main.py app tests
 python -c 'import main; print("FastAPI imports OK")'
 python -m unittest discover -s tests -p 'test_*.py'
 ```
+
+
+## Analytics loading and refresh
+
+The Industry Classification workspace defaults to a 30-day shipment window. Summary analytics load first; salesperson analysis is deferred until its panel approaches the viewport, and industry vertical/contributor drilldowns load only after a vertical is selected. Use the page-level **Refresh data** control to refresh the register, classification status, shipment insights and any currently selected drilldown without a full browser reload. The classification workbook import/export contract remains independent of these analytics loading optimisations.
