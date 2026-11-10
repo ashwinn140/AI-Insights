@@ -793,7 +793,7 @@ def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=
 @app.get("/api/classifications")
 def classifications_api(q: str="",user=Depends(current_user)):
     if len(q)>100: raise HTTPException(400,"Search too long")
-    return {"results":auth.classification_list(q)}
+    return {"results":auth.classification_list(q,limit=5000)}
 
 @app.post("/api/classifications/save")
 @app.post("/api/admin/classifications")
