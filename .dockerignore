@@ -1,0 +1,8 @@
+.git
+__pycache__
+*.pyc
+*.db
+*.sqlite
+.env
+*.xlsx
+*.zip
