@@ -7,8 +7,8 @@ CREATE OR REPLACE VIEW ai_insights_source.current_shipments AS
 SELECT id, company, report_type, key, shipment_no, shipment_date,
        branch, customer, shipper, consignee, origin, origin_code,
        destination, destination_code, gross_wt, chargeable_wt,
-       teus, volume, cargo_type, consol_type, carrier, nomination, status, stage,
-       job_owner, job_owner AS salesperson
+       teus, volume, cargo_type, consol_type, nomination, status, stage,
+       carrier, job_owner, job_owner AS salesperson
 FROM public.shipments WHERE to_import IS NULL;
 -- Create role only if it does not exist (psql-compatible PL/pgSQL).
 DO $$
