@@ -46,39 +46,55 @@ def analytics_export(data):
     return workbook_bytes(sheets)
 
 def parse_classification_xlsx(payload):
-    if len(payload)>20*1024*1024: raise ValueError("Excel file exceeds 20 MB")
-    try: wb=load_workbook(BytesIO(payload),read_only=True,data_only=True)
-    except Exception: raise ValueError("Invalid XLSX workbook")
-    ws=wb.active
-    iterator=ws.iter_rows(values_only=True)
-    header=next(iterator,None)
-    expected=["company_name","industry","confidence","source"]
-    if not header or [str(x or "").strip().lower() for x in header[:4]]!=expected:
-        raise ValueError("Expected columns: "+", ".join(expected))
-    header_names=[str(x or "").strip().lower() for x in header]
-    country_index=header_names.index("country") if "country" in header_names else None
-    rows=[]
-    skipped=0
-    for n,row in enumerate(iterator,2):
-        if n>50001: raise ValueError("Maximum 50,000 rows per import")
-        if not any(x is not None for x in row): continue
-        if len(row)<4: raise ValueError(f"Row {n}: missing columns")
-        name,industry,confidence,source=row[:4]
-        if not isinstance(name,str) or not name.strip():
-            raise ValueError(f"Row {n}: invalid company name")
-        country=row[country_index] if country_index is not None and len(row)>country_index else ""
-        if country is None: country=""
-        if not isinstance(country,str): raise ValueError(f"Row {n}: country must be text")
-        # Unresolved research rows remain pending; never manufacture an industry.
-        if industry is None or not str(industry).strip():
-            skipped+=1
-            continue
-        if not all(isinstance(x,str) for x in (industry,confidence,source)):
-            raise ValueError(f"Row {n}: classified rows require text industry, confidence and source")
-        if not validate_industry(industry):
-            raise ValueError(f"Row {n}: industry must exactly match one of the 15 industry verticals")
-        rows.append((name,industry,confidence.strip().lower(),source,country))
-    return rows,skipped
+    """Parse the compact five-column workbook; blank rows remain pending."""
+    if len(payload)>20*1024*1024:
+        raise ValueError("Excel file exceeds 20 MB")
+    try:
+        wb=load_workbook(BytesIO(payload),read_only=True,data_only=True)
+    except Exception:
+        raise ValueError("Invalid XLSX workbook")
+    try:
+        if "Pending classification" not in wb.sheetnames:
+            raise ValueError('Expected worksheet: "Pending classification"')
+        ws=wb["Pending classification"]
+        iterator=ws.iter_rows(values_only=True)
+        header=next(iterator,None)
+        expected=["company_name","industry","confidence","source","country"]
+        if not header or [str(x or "").strip().lower() for x in header[:5]]!=expected or len(header)!=5:
+            raise ValueError("Expected exactly five columns: "+", ".join(expected))
+        rows=[]
+        skipped=0
+        seen=set()
+        for n,row in enumerate(iterator,2):
+            if n>50001:
+                raise ValueError("Maximum 50,000 rows per import")
+            if not any(x is not None for x in row):
+                continue
+            if len(row)<5:
+                raise ValueError(f"Row {n}: missing columns")
+            name,industry,confidence,source,country=row[:5]
+            if not isinstance(name,str) or not name.strip():
+                raise ValueError(f"Row {n}: invalid company name")
+            if country is not None and not isinstance(country,str):
+                raise ValueError(f"Row {n}: country must be text")
+            # Blank industry means "not classified this cycle" and is a no-op.
+            if industry is None or not str(industry).strip():
+                skipped+=1
+                continue
+            if not isinstance(industry,str) or not validate_industry(industry):
+                raise ValueError(f"Row {n}: industry must exactly match one of the 15 industry verticals")
+            if not isinstance(confidence,str) or confidence.strip().lower() not in ("low","medium","high"):
+                raise ValueError(f"Row {n}: confidence must be low, medium or high")
+            if not isinstance(source,str) or len(source.strip())<3:
+                raise ValueError(f"Row {n}: classified rows require evidence or a source URL")
+            key=name.strip().casefold()
+            if key in seen:
+                raise ValueError(f"Row {n}: duplicate company name; keep one row per organisation")
+            seen.add(key)
+            rows.append((name.strip(),industry.strip(),confidence.strip().lower(),source.strip(),(country or "").strip()))
+        return rows,skipped
+    finally:
+        wb.close()
 
 def classification_workbook_with_prompt(sheets, import_sheet_title):
     """Add canonical research instructions and the 15-industry dropdown."""
