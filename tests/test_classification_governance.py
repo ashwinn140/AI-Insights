@@ -49,7 +49,7 @@ class ClassificationGovernanceTests(unittest.TestCase):
         auth.classification_save(1, "Protected Company", "Industrial Manufacturing & Engineering", "high",
                                  "Verified evidence", True, "India")
         imported = auth.classification_import(7, [
-            ("Protected Company", "Consumer Goods & Retail", "high", "New workbook source", False, "India"),
+            ("Protected Company", "Automotive & Auto Components", "high", "New workbook source", False, "India"),
             ("New Company", "Electronics & Electrical Equipment", "medium", "Research source", False, "Germany"),
         ])
         self.assertEqual(imported, 1)
