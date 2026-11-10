@@ -4,6 +4,7 @@ from openpyxl import Workbook,load_workbook
 from openpyxl.styles import Font,PatternFill,Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.workbook.defined_name import DefinedName
 from app.industry_master import INDUSTRY_VERTICALS, validate_industry
 
 def safe_cell(value):
@@ -85,7 +86,12 @@ def classification_template():
         [["Example Company",INDUSTRY_VERTICALS[0],"medium","Verified source reference","India"]])])
     wb=load_workbook(BytesIO(payload))
     ws=wb["Classification import"]
-    validation=DataValidation(type="list",formula1='"'+",".join(INDUSTRY_VERTICALS)+'"',allow_blank=True)
+    master=wb.create_sheet("Industry Master")
+    for label in INDUSTRY_VERTICALS:
+        master.append([label])
+    master.sheet_state="hidden"
+    wb.defined_names.add(DefinedName("IndustryVerticals",attr_text="'Industry Master'!$A$1:$A$15"))
+    validation=DataValidation(type="list",formula1="=IndustryVerticals",allow_blank=True)
     validation.error="Select one of the 15 approved industry verticals."
     validation.errorTitle="Invalid industry"
     validation.showErrorMessage=True
