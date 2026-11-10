@@ -645,10 +645,10 @@ def classification_contributors_export(industry:str,company:str|None=None,lob:st
     rows=data["rows"]; records=data["records"]; summary=data["record_summary"]
     output=workbook_bytes([
       ("Calculation",["Metric","Value"],[[k,v] for k,v in summary.items()]+[[k,v] for k,v in data["calculation"].items()]),
-      ("Contributors",["Organisation","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
-       [[r.get(k) for k in ["organisation","contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for r in rows]),
-      ("Shipment records",["Shipment key","Shipment date","Company","Department","Shipper","Consignee","Origin","Destination","Branch","ERP Sales Person","Job owner","Evidence","Confidence"],
-       [[r.get(k) for k in ["shipment_key","shipment_date","company","report_type","shipper","consignee","origin","destination","branch","salesperson","job_owner","evidence","confidence"]] for r in records]),
+      ("Contributors",["Organisation","Industry vertical","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
+       [[r.get("organisation"),industry]+[r.get(k) for k in ["contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for r in rows]),
+      ("Shipment records",["Shipment key","Shipment date","Company","Department","Industry vertical","Shipper","Consignee","Origin","Destination","Branch","ERP Sales Person","Job owner","Evidence","Confidence"],
+       [[r.get("shipment_key"),r.get("shipment_date"),r.get("company"),r.get("report_type"),industry]+[r.get(k) for k in ["shipper","consignee","origin","destination","branch","salesperson","job_owner","evidence","confidence"]] for r in records]),
       ("Applied filters",["Filter","Value"],[[k,v] for k,v in {"industry":industry,"company":company,"department":lob,"role":role,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch,"start":start,"end":end}.items() if v])
     ])
     return StreamingResponse(BytesIO(output),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -789,6 +789,19 @@ def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=
     finally:
         engine.dispose()
     return {"rows":rows,"basis":"ERP Sales Person source field; job_owner is separate; export attributed to shipper and import to consignee; saved classifications with a valid industry only."}
+
+@app.get("/api/classifications/salesperson-industry/export")
+def salesperson_industry_export(company:str|None=None,lob:str|None=None,start:str|None=None,end:str|None=None,origin:str|None=None,destination:str|None=None,shipper:str|None=None,consignee:str|None=None,branch:str|None=None,user=Depends(current_user)):
+    data=salesperson_industry(company,lob,start,end,origin,destination,shipper,consignee,branch,user)
+    rows=data["rows"]
+    output=workbook_bytes([
+      ("Salesperson industry mix",["ERP Sales Person","Industry vertical","Shipment rows","Distinct shipments","Shippers","Consignees"],
+       [[r.get("salesperson"),r.get("industry"),r.get("shipment_rows"),r.get("distinct_shipments"),r.get("distinct_shippers"),r.get("distinct_consignees")] for r in rows]),
+      ("Applied filters",["Filter","Value"],[[k,v] for k,v in {"company":company,"department":lob,"start":start,"end":end,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch}.items() if v]),
+      ("Methodology",["Basis"],[[data["basis"]]])
+    ])
+    return StreamingResponse(BytesIO(output),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+       headers={"Content-Disposition":"attachment; filename=ai-insights-salesperson-industry-mix.xlsx","Cache-Control":"no-store"})
 
 @app.get("/api/classifications")
 def classifications_api(response: Response,q: str="",user=Depends(current_user)):
