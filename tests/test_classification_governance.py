@@ -30,9 +30,9 @@ class ClassificationWorkflowTests(unittest.TestCase):
 
     def test_any_authorized_contributor_can_update_existing_classification(self):
         auth.classification_save(1, "Example Logistics", "Logistics & Supply Chain Services",
-                                 "high", "Verified evidence", None, "India")
+                                 "high", "Verified evidence", "India")
         auth.classification_save(7, "Example Logistics", "Consumer Goods & Retail",
-                                 "medium", "Updated source", None, "India")
+                                 "medium", "Updated source", "India")
         record = auth.classification_list("Example Logistics")[0]
         self.assertEqual(record["industry"], "Consumer Goods & Retail")
         self.assertEqual(record["confidence"], "medium")
@@ -40,10 +40,10 @@ class ClassificationWorkflowTests(unittest.TestCase):
 
     def test_excel_import_immediately_saves_and_overwrites_classifications(self):
         auth.classification_save(1, "Existing Company", "Industrial Manufacturing & Engineering",
-                                 "high", "Old evidence", None, "India")
+                                 "high", "Old evidence", "India")
         imported = auth.classification_import(7, [
-            ("Existing Company", "Automotive & Auto Components", "medium", "New workbook source", False, "India"),
-            ("New Company", "Electronics & Electrical Equipment", "high", "Research source", False, "Germany"),
+            ("Existing Company", "Automotive & Auto Components", "medium", "New workbook source", "India"),
+            ("New Company", "Electronics & Electrical Equipment", "high", "Research source", "Germany"),
         ])
         self.assertEqual(imported, 2)
         records = {r["company_name"]: r for r in auth.classification_list("")}
@@ -53,12 +53,12 @@ class ClassificationWorkflowTests(unittest.TestCase):
 
     def test_blank_industry_is_pending_and_valid_label_required(self):
         with self.assertRaisesRegex(ValueError, "15 defined verticals"):
-            auth.classification_save(1, "Bad Category Co", "Automotive", "high", "Evidence", None, "India")
+            auth.classification_save(1, "Bad Category Co", "Automotive", "high", "Evidence", "India")
         self.assertEqual(auth.classification_industry_status()["pending_classification"], 0)
 
     def test_reclassification_reset_archives_existing_data_and_clears_industry(self):
         auth.classification_save(1, "Previously Classified Co", "Automotive & Auto Components",
-                                 "high", "Verified source", None, "India")
+                                 "high", "Verified source", "India")
         result = auth.reset_classifications_for_reclassification(1, "batch-2026-11-10")
         self.assertEqual(result["reset"], 1)
         self.assertEqual(result["archived"], 1)
