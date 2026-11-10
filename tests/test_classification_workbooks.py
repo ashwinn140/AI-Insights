@@ -15,7 +15,7 @@ class ClassificationWorkbookTests(unittest.TestCase):
         self.assertEqual(wb.active.title, "Classification import")
         prompt = str(wb["AI Prompt"]["A2"].value)
         self.assertIn(INDUSTRY_PROMPT, prompt)
-        self.assertEqual([wb["AI Prompt"].cell(row=i, column=2).value for i in range(2, 17)], INDUSTRY_VERTICALS)
+        self.assertEqual([wb["AI Prompt"].cell(row=i, column=2).value for i in range(2, 17)], list(INDUSTRY_VERTICALS))
         self.assertIn("IndustryVerticals", wb.defined_names)
         validation = wb["Classification import"].data_validations.dataValidation[0]
         self.assertEqual(validation.formula1, "=IndustryVerticals")
