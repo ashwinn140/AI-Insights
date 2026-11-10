@@ -19,7 +19,7 @@ class DashboardLandingTests(unittest.TestCase):
     def test_discovery_pages_remain_in_primary_navigation(self):
         source = Path("app/ui.js").read_text()
         assert "location.replace('/classifications')" not in source
-        assert "link.getAttribute('href')" in source
+        assert "a.getAttribute('href')" in source
         assert "['/companies','/opportunities'].includes" not in source
 
     def test_guide_route_and_business_outcome_indicators_are_wired(self):
