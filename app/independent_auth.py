@@ -344,7 +344,7 @@ def classification_industry_status():
             SELECT industry, COUNT(*) AS total,
                    SUM(CASE WHEN approved=1 THEN 1 ELSE 0 END) AS approved,
                    SUM(CASE WHEN approved=0 THEN 1 ELSE 0 END) AS pending
-            FROM classifications GROUP BY industry ORDER BY total DESC,industry LIMIT 100
+            FROM classifications WHERE TRIM(COALESCE(industry,''))<>'' GROUP BY industry ORDER BY total DESC,industry LIMIT 100
         """)]
         total=db.execute("SELECT COUNT(*) FROM classifications WHERE approved=1").fetchone()[0]
         pending_review=db.execute("SELECT COUNT(*) FROM classifications WHERE approved=0").fetchone()[0]
