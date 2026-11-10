@@ -563,8 +563,16 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
     # classification register (1MB+) repeatedly for every contributor query caused
     # statement timeouts and HTTP 500s on this endpoint.
     with auth.connection() as db:
-        mapping=[dict(r) for r in db.execute("""SELECT company_name,industry,country,confidence,source
-            FROM classifications WHERE industry=? AND TRIM(COALESCE(industry,''))<>''""",(industry,))]
+        # Keep only unambiguous companies in the requested vertical. The HAVING
+        # clause checks the full register so a duplicate company mapped to two
+        # verticals is not accidentally treated as verified for either one.
+        mapping=[dict(r) for r in db.execute("""SELECT MIN(company_name) AS company_name,
+                MIN(industry) AS industry,MIN(country) AS country,
+                MIN(confidence) AS confidence,MIN(source) AS source
+            FROM classifications
+            WHERE TRIM(COALESCE(industry,''))<>''
+            GROUP BY LOWER(TRIM(company_name))
+            HAVING COUNT(DISTINCT industry)=1 AND MIN(industry)=?""",(industry,))]
     import json
     params["mapping"]=json.dumps(mapping); params["industry"]=industry; params["role"]=role; params["limit"]=min(max(int(limit),1),50000); params["offset"]=max(int(offset),0); params["record_limit"]=min(max(int(record_limit),1),50000); params["record_offset"]=max(int(record_offset),0)
     party=("CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END"
