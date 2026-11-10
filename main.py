@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from io import BytesIO
 from app.crossfilter import query_rows,filter_options
 from app.research_catalog import parse_research,import_research,research_summary,research_list
-from app.excel_tools import analytics_export,parse_classification_xlsx,classification_template,workbook_bytes
+from app.excel_tools import analytics_export,parse_classification_xlsx,classification_template,classification_workbook_with_prompt,workbook_bytes
 from app import independent_auth as auth
 from app.industry_master import INDUSTRY_VERTICALS, INDUSTRY_PROMPT
 from app.industry_explorer import summary, top_trade_lanes, company_appearances
