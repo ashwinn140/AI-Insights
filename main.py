@@ -649,7 +649,7 @@ def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=
         raise HTTPException(503,"Salesperson source field is not yet available. Apply the expanded read-only shipment view.")
     finally:
         engine.dispose()
-    return {"rows":rows,"basis":"job_owner exposed as salesperson; export attributed to shipper and import to consignee; approved classifications only."}
+    return {"rows":rows,"basis":"ERP Sales Person source field; job_owner is separate; export attributed to shipper and import to consignee; approved classifications only."}
 
 @app.get("/api/classifications")
 def classifications_api(q: str="",user=Depends(current_user)):
