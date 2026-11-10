@@ -187,7 +187,7 @@ async function shipmentTrend(){
  }catch(e){chart.replaceChildren();table.replaceChildren();summary.textContent='Industry insights unavailable: '+e.message}
 }
 async function refreshIndustryViews(){contributorFilterOptions();shipmentTrend();salespersonIndustry();if(selectedTrendIndustry)contributorRecords()}
-function trendInit(){try{
+async function trendInit(){try{
  const u=await api('/auth/me');
  for(const [id,values] of [['company',u.companies],['lob',u.lobs]])for(const value of values){const opt=document.createElement('option');opt.value=value;opt.textContent=id==='lob'?({AE:'Air Export',AI:'Air Import',OE:'Ocean Export',OI:'Ocean Import'}[value]||value):({NG:'New Globe Logistics',NCS:'Neutral Consolidation Services'}[value]||value);$('trend-'+id).append(opt)}
  $('trend-period').onchange=()=>{applyPeriod();refreshIndustryViews()};
