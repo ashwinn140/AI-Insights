@@ -20,7 +20,7 @@ class ClassificationWorkflowTests(unittest.TestCase):
 
     def test_saved_classification_is_immediately_active(self):
         auth.classification_save(7, "Example Logistics", "Logistics & Supply Chain Services",
-                                 "high", "https://example.com/evidence", None, "India")
+                                 "high", "https://example.com/evidence", "India")
         record = auth.classification_list("Example Logistics")[0]
         self.assertEqual(record["industry"], "Logistics & Supply Chain Services")
         self.assertNotIn("approved", record)
