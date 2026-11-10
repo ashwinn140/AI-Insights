@@ -244,13 +244,18 @@ def audit_events(limit=100):
         return [dict(r) for r in db.execute(
             "SELECT event,user_id,created_at FROM audit ORDER BY id DESC LIMIT ?",(min(limit,200),))]
 
-def classification_list(term="",limit=10000):
+def classification_list(term="",limit=10,offset=0):
     term=(term or "").strip()
     with connection() as db:
         return [dict(r) for r in db.execute("""SELECT id,company_name,industry,country,confidence,source,
             updated_at FROM classifications
-            WHERE company_name LIKE ? ORDER BY updated_at DESC, company_name COLLATE NOCASE LIMIT ?""",
-            ("%"+term+"%",min(max(int(limit),1),10000)))]
+            WHERE company_name LIKE ? ORDER BY updated_at DESC, company_name COLLATE NOCASE LIMIT ? OFFSET ?""",
+            ("%"+term+"%",min(max(int(limit),1),100),max(int(offset),0)))]
+
+def classification_count(term=""):
+    term=(term or "").strip()
+    with connection() as db:
+        return int(db.execute("SELECT COUNT(*) FROM classifications WHERE company_name LIKE ?",("%"+term+"%",)).fetchone()[0])
 
 def classification_save(actor,company_name,industry,confidence,source,country=""):
     company_name=company_name.strip()
