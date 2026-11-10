@@ -277,26 +277,37 @@ def classification_save(actor,company_name,industry,confidence,source,country=""
                    ("classification_saved_by_"+str(actor),actor,int(time.time())))
 
 def classification_import(actor,rows):
-    """All-or-nothing import with validation before writes."""
-    import re
+    """All-or-nothing import. A workbook may update only classified rows."""
     normalized=[]
+    seen=set()
     for row in rows:
         name,industry,confidence,source,*extras=row
-        # Accept legacy workbook tuples while ignoring their former approval flag.
-        if extras and isinstance(extras[0], bool): extras=extras[1:]
+        if extras and isinstance(extras[0], bool):
+            extras=extras[1:]
         country=(extras[0] or "").strip() if extras else ""
-        if len(country)>100: raise ValueError("Country must be 100 characters or fewer")
-        name=name.strip();industry=industry.strip();source=source.strip()
-        if not 2<=len(name)<=200 or not 3<=len(source)<=500:
-            raise ValueError("Company name and evidence source are required")
+        if len(country)>100:
+            raise ValueError("Country must be 100 characters or fewer")
+        if not isinstance(name,str) or not 2<=len(name.strip())<=200:
+            raise ValueError("Company name is required and must be 2–200 characters")
+        name=name.strip()
+        industry=industry.strip() if isinstance(industry,str) else ""
+        confidence=confidence.strip().lower() if isinstance(confidence,str) else ""
+        source=source.strip() if isinstance(source,str) else ""
         if not validate_industry(industry):
             raise ValueError(f"Invalid industry vertical for {name}: choose one of the 15 defined labels")
         if confidence not in ("low","medium","high"):
-            raise ValueError("Invalid confidence")
-        normalized.append((name,industry,confidence,source,0,country))
+            raise ValueError(f"Invalid confidence for {name}: use low, medium or high")
+        if len(source)<3:
+            raise ValueError(f"Evidence source is required for {name}")
+        key=name.casefold()
+        if key in seen:
+            raise ValueError(f"Duplicate company name in import: {name}")
+        seen.add(key)
+        normalized.append((name,industry,confidence,source,country))
     imported=0
     with connection() as db:
-        for name,industry,confidence,source,approved,country in normalized:
+        for name,industry,confidence,source,country in normalized:
+            # A blank workbook country never erases country already saved in portal.
             cursor=db.execute("""INSERT INTO classifications
                 (company_name,industry,country,confidence,source,approved,updated_by,updated_at)
                 VALUES (?,?,?,?,?,?,?,?)
@@ -310,6 +321,7 @@ def classification_import(actor,rows):
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_excel_import_"+str(imported),actor,int(time.time())))
     return imported
+
 
 def pending_classification_names(limit=50000):
     """Return research entities plus all reset/pending saved organisations; never invent industries."""
