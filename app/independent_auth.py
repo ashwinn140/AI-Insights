@@ -255,7 +255,7 @@ def classification_save(actor,company_name,industry,confidence,source,approved=F
     if confidence not in ("low","medium","high"):
         raise ValueError("Invalid confidence")
     with connection() as db:
-        db.execute("""INSERT INTO classifications
+        cursor=db.execute("""INSERT INTO classifications
             (company_name,industry,country,confidence,source,approved,updated_by,updated_at)
             VALUES (?,?,?,?,?,?,?,?)
             ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
@@ -264,6 +264,8 @@ def classification_save(actor,company_name,industry,confidence,source,approved=F
                 updated_by=excluded.updated_by,updated_at=excluded.updated_at
                 WHERE classifications.approved=0""",
             (company_name,industry,country,confidence,source,int(bool(approved)),actor,int(time.time())))
+        if cursor.rowcount != 1:
+            raise ValueError("An approved classification cannot be overwritten; contact an administrator to review it")
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_saved_by_"+str(actor),actor,int(time.time())))
 
