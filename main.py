@@ -614,6 +614,17 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
             LEFT JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
             WHERE {where} AND m.industry=:industry"""
             summary_row=dict(conn.execute(text(summary_sql),params).mappings().one())
+            record_count_sql=f"""WITH industry_map AS (
+              SELECT LOWER(BTRIM(company_name)) AS normalized_name,
+                     CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry
+              FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
+                AS x(company_name text,industry text,country text,confidence text,source text)
+              GROUP BY 1
+            )
+            SELECT COUNT(*) FROM ai_insights_source.current_shipments s
+            JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
+            WHERE {where} AND m.industry=:industry"""
+            shipment_record_total=int(conn.execute(text(record_count_sql),params).scalar() or 0)
             record_sql=f"""WITH industry_map AS (
               SELECT LOWER(BTRIM(company_name)) AS normalized_name,
                      CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry,
@@ -632,7 +643,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
             records=[dict(r) for r in conn.execute(text(record_sql),params).mappings()]
     finally: engine.dispose()
     return {"industry":industry,"role":role,"rows":rows,"records":records,"contributor_total":contributor_total,"record_total":shipment_record_total,"record_summary":summary_row,
-            "calculation":{"contributor_organisations":len(rows),
+            "calculation":{"contributor_organisations":contributor_total,
                 "shipment_rows":sum(int(r["shipment_rows"] or 0) for r in rows),
                 "distinct_shipments_sum":sum(int(r["distinct_shipments"] or 0) for r in rows),
                 "basis":"Shipment rows are counted per attributed organisation. Distinct shipment keys are per organisation and are not additive across organisations."},
