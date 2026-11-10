@@ -559,9 +559,12 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
              "shipper":shipper,"consignee":consignee,"branch":branch}
     try: where,params=conditions(companies,lobs,filters)
     except ValueError as exc: raise HTTPException(400,str(exc))
+    # Only send the selected vertical's mappings to PostgreSQL. Sending the entire
+    # classification register (1MB+) repeatedly for every contributor query caused
+    # statement timeouts and HTTP 500s on this endpoint.
     with auth.connection() as db:
         mapping=[dict(r) for r in db.execute("""SELECT company_name,industry,country,confidence,source
-            FROM classifications WHERE TRIM(COALESCE(industry,''))<>''""")]
+            FROM classifications WHERE industry=? AND TRIM(COALESCE(industry,''))<>''""",(industry,))]
     import json
     params["mapping"]=json.dumps(mapping); params["industry"]=industry; params["role"]=role; params["limit"]=min(max(int(limit),1),50000); params["offset"]=max(int(offset),0); params["record_limit"]=min(max(int(record_limit),1),50000); params["record_offset"]=max(int(record_offset),0)
     party=("CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END"
