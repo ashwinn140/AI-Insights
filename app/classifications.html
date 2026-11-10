@@ -87,7 +87,7 @@ function renderContributorRows(rows){
  const body=$('contributor-rows');body.replaceChildren();
  for(const r of rows){const tr=document.createElement('tr');
   for(const v of [r.organisation,r.contributor_role,Number(r.shipment_rows).toLocaleString('en-IN'),Number(r.distinct_shipments).toLocaleString('en-IN'),Number(r.distinct_related_parties).toLocaleString('en-IN'),r.salespersons||'Not assigned',r.job_owners||'Not assigned',r.confidence||'—']){const td=document.createElement('td');td.textContent=v??'—';tr.append(td)}
-  const td=document.createElement('td');if(r.evidence&&/^https?:\\/\\//i.test(r.evidence)){const link=document.createElement('a');link.href=r.evidence;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Open source';td.append(link)}else td.textContent=r.evidence||'No evidence saved';tr.append(td);body.append(tr);
+  const td=document.createElement('td');if(r.evidence&&(r.evidence.startsWith('http://')||r.evidence.startsWith('https://'))){const link=document.createElement('a');link.href=r.evidence;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Open source';td.append(link)}else td.textContent=r.evidence||'No evidence saved';tr.append(td);body.append(tr);
  }
 }
 function renderShipmentRows(rows){
