@@ -521,7 +521,7 @@ def classification_pending_template(user=Depends(current_user)):
     companies,lobs=allowed_scope(user,None,None)
     engine=scoped_engine()
     try:
-        # This expanded source contract requires the view to expose job_owner AS salesperson.
+        # This expanded source contract requires the view to expose ERP Sales Person separately from job_owner.
         statement=text("""WITH parties AS (
           SELECT NULLIF(BTRIM(shipper),'') AS company_name,
                  COUNT(*) AS shipper_appearances,0::bigint AS consignee_appearances,
