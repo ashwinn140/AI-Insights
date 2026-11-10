@@ -6,6 +6,7 @@ import secrets
 import sqlite3
 import time
 from pathlib import Path
+from app.industry_master import validate_industry
 
 DB = Path(os.environ.get("AI_AUTH_DB", "/ai-data/auth.sqlite3"))
 COMPANIES = {"NG", "NCS"}
@@ -61,6 +62,13 @@ def initialize():
         db.execute("""CREATE TABLE IF NOT EXISTS audit (
             id INTEGER PRIMARY KEY, event TEXT NOT NULL, user_id INTEGER,
             created_at INTEGER NOT NULL
+        )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS classification_history (
+            id INTEGER PRIMARY KEY, classification_id INTEGER NOT NULL,
+            company_name TEXT NOT NULL, industry TEXT NOT NULL, country TEXT NOT NULL,
+            confidence TEXT NOT NULL, source TEXT NOT NULL, approved INTEGER NOT NULL,
+            updated_by INTEGER, updated_at INTEGER NOT NULL, archived_at INTEGER NOT NULL,
+            reset_batch TEXT NOT NULL
         )""")
 
 def password_hash(password):
@@ -250,8 +258,10 @@ def classification_save(actor,company_name,industry,confidence,source,approved=F
     source=source.strip()
     country=(country or "").strip()
     if len(country)>100: raise ValueError("Country must be 100 characters or fewer")
-    if not 2<=len(company_name)<=200 or not 2<=len(industry)<=100 or not 3<=len(source)<=500:
-        raise ValueError("Company, industry and evidence source are required")
+    if not 2<=len(company_name)<=200 or not 3<=len(source)<=500:
+        raise ValueError("Company name and evidence source are required")
+    if not validate_industry(industry):
+        raise ValueError("Industry must match one of the 15 approved verticals exactly")
     if confidence not in ("low","medium","high"):
         raise ValueError("Invalid confidence")
     with connection() as db:
@@ -278,8 +288,10 @@ def classification_import(actor,rows):
         country=(extras[0] or "").strip() if extras else ""
         if len(country)>100: raise ValueError("Country must be 100 characters or fewer")
         name=name.strip();industry=industry.strip();source=source.strip()
-        if not 2<=len(name)<=200 or not 2<=len(industry)<=100 or not 3<=len(source)<=500:
-            raise ValueError("Company, industry and evidence source are required")
+        if not 2<=len(name)<=200 or not 3<=len(source)<=500:
+            raise ValueError("Company name and evidence source are required")
+        if not validate_industry(industry):
+            raise ValueError(f"Invalid industry vertical for {name}: choose one of the 15 approved labels")
         if confidence not in ("low","medium","high"):
             raise ValueError("Invalid confidence")
         normalized.append((name,industry,confidence,source,0,country))
@@ -337,6 +349,37 @@ def classification_industry_status():
     return {"industries":industries,"classified":total,"pending_review":pending_review,
             "research_pending":pending}
 
+
+
+def reset_classifications_for_reclassification(actor, batch_id):
+    """Archive every existing decision, then clear its industry and return it to pending."""
+    if not batch_id or len(batch_id) > 80:
+        raise ValueError("Invalid reset batch identifier")
+    now = int(time.time())
+    with connection() as db:
+        if db.execute("SELECT 1 FROM classification_history WHERE reset_batch=? LIMIT 1",
+                      (batch_id,)).fetchone():
+            raise ValueError("This reset batch has already been applied")
+        rows = db.execute("""SELECT id,company_name,industry,country,confidence,source,
+                             approved,updated_by,updated_at FROM classifications""").fetchall()
+        db.executemany("""INSERT INTO classification_history
+            (classification_id,company_name,industry,country,confidence,source,approved,
+             updated_by,updated_at,archived_at,reset_batch)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            [(r["id"],r["company_name"],r["industry"],r["country"],r["confidence"],
+              r["source"],r["approved"],r["updated_by"],r["updated_at"],now,batch_id)
+             for r in rows])
+        db.execute("""UPDATE classifications
+            SET industry='',confidence='low',
+                source='Awaiting fresh evidence after controlled reclassification reset',
+                approved=0,updated_by=?,updated_at=?""",(actor,now))
+        db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
+                   ("classification_reset_to_pending_"+batch_id+":"+str(len(rows)),actor,now))
+        return {"reset":len(rows),"batch_id":batch_id,"archived":len(rows)}
+
+def classification_history_count():
+    with connection() as db:
+        return db.execute("SELECT COUNT(*) FROM classification_history").fetchone()[0]
 
 def approve_classification(actor, classification_id):
     """Explicit administrator review; approval is recorded with an audit identity."""
