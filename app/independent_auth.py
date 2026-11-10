@@ -42,8 +42,7 @@ def initialize():
         existing_columns={r[1] for r in db.execute("PRAGMA table_info(classifications)")}
         if "country" not in existing_columns:
             db.execute("ALTER TABLE classifications ADD COLUMN country TEXT NOT NULL DEFAULT ''")
-        # One-time compatibility migration: existing classifications are active immediately.
-        db.execute("UPDATE classifications SET approved=1 WHERE approved=0")
+        # Pending review is durable and must never be changed during startup.
         db.execute("""CREATE TABLE IF NOT EXISTS research_entities (
             entity_key TEXT PRIMARY KEY, original_name TEXT NOT NULL,
             normalized_name TEXT, canonical_entity TEXT, parent_group TEXT,
@@ -245,7 +244,7 @@ def classification_list(term="",limit=200):
             WHERE company_name LIKE ? ORDER BY company_name LIMIT ?""",
             ("%"+term+"%",min(limit,500)))]
 
-def classification_save(actor,company_name,industry,confidence,source,approved,country=""):
+def classification_save(actor,company_name,industry,confidence,source,approved=False,country=""):
     company_name=company_name.strip()
     industry=industry.strip()
     source=source.strip()
@@ -262,8 +261,9 @@ def classification_save(actor,company_name,industry,confidence,source,approved,c
             ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
                 country=CASE WHEN excluded.country <> '' THEN excluded.country ELSE classifications.country END,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
-                updated_by=excluded.updated_by,updated_at=excluded.updated_at""",
-            (company_name,industry,country,confidence,source,1,actor,int(time.time())))
+                updated_by=excluded.updated_by,updated_at=excluded.updated_at
+                WHERE classifications.approved=0""",
+            (company_name,industry,country,confidence,source,int(bool(approved)),actor,int(time.time())))
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
                    ("classification_saved_by_"+str(actor),actor,int(time.time())))
 
@@ -280,24 +280,27 @@ def classification_import(actor,rows):
             raise ValueError("Company, industry and evidence source are required")
         if confidence not in ("low","medium","high"):
             raise ValueError("Invalid confidence")
-        normalized.append((name,industry,confidence,source,1,country))
+        normalized.append((name,industry,confidence,source,0,country))
+    imported=0
     with connection() as db:
         for name,industry,confidence,source,approved,country in normalized:
-            db.execute("""INSERT INTO classifications
+            cursor=db.execute("""INSERT INTO classifications
                 (company_name,industry,country,confidence,source,approved,updated_by,updated_at)
                 VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT(company_name) DO UPDATE SET industry=excluded.industry,
                 country=CASE WHEN excluded.country <> '' THEN excluded.country ELSE classifications.country END,
                 confidence=excluded.confidence,source=excluded.source,approved=excluded.approved,
                 updated_by=excluded.updated_by,updated_at=excluded.updated_at
-                WHERE CASE classifications.confidence
+                WHERE classifications.approved=0
+                  AND CASE classifications.confidence
                     WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END
                     <= CASE excluded.confidence
                     WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END""",
                 (name,industry,country,confidence,source,approved,actor,int(time.time())))
+            imported += max(cursor.rowcount,0)
         db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
-                   ("classification_excel_import_"+str(len(normalized)),actor,int(time.time())))
-    return len(normalized)
+                   ("classification_excel_import_"+str(imported),actor,int(time.time())))
+    return imported
 
 def pending_classification_names(limit=10000):
     """Unclassified research names only; does not invent industries."""
@@ -311,6 +314,7 @@ def pending_classification_names(limit=10000):
             WHERE NOT EXISTS (
                 SELECT 1 FROM classifications c
                 WHERE c.company_name = r.original_name COLLATE NOCASE
+                  AND c.approved=1
             )
             ORDER BY COALESCE(r.appearances,0) DESC, r.original_name
             LIMIT ?
@@ -320,12 +324,31 @@ def classification_industry_status():
     with connection() as db:
         industries=[dict(row) for row in db.execute("""
             SELECT industry, COUNT(*) AS total,
-                   COUNT(*) AS approved,
-                   0 AS pending
+                   SUM(CASE WHEN approved=1 THEN 1 ELSE 0 END) AS approved,
+                   SUM(CASE WHEN approved=0 THEN 1 ELSE 0 END) AS pending
             FROM classifications GROUP BY industry ORDER BY total DESC,industry LIMIT 100
         """)]
-        total=db.execute("SELECT COUNT(*) FROM classifications").fetchone()[0]
+        total=db.execute("SELECT COUNT(*) FROM classifications WHERE approved=1").fetchone()[0]
+        pending_review=db.execute("SELECT COUNT(*) FROM classifications WHERE approved=0").fetchone()[0]
         pending=db.execute("""SELECT COUNT(*) FROM research_entities r
             WHERE NOT EXISTS (SELECT 1 FROM classifications c
-            WHERE c.company_name=r.original_name COLLATE NOCASE)""").fetchone()[0]
-    return {"industries":industries,"classified":total,"research_pending":pending}
+            WHERE c.company_name=r.original_name COLLATE NOCASE AND c.approved=1)""").fetchone()[0]
+    return {"industries":industries,"classified":total,"pending_review":pending_review,
+            "research_pending":pending}
+
+
+def approve_classification(actor, classification_id):
+    """Explicit administrator review; approval is recorded with an audit identity."""
+    now=int(time.time())
+    with connection() as db:
+        cursor=db.execute("""UPDATE classifications
+            SET approved=1,updated_by=?,updated_at=?
+            WHERE id=? AND approved=0""",(actor,now,classification_id))
+        if cursor.rowcount != 1:
+            exists=db.execute("SELECT 1 FROM classifications WHERE id=?",(classification_id,)).fetchone()
+            if not exists:
+                raise ValueError("Classification not found")
+            return False
+        db.execute("INSERT INTO audit(event,user_id,created_at) VALUES (?,?,?)",
+                   ("classification_approved_"+str(classification_id),actor,now))
+    return True
