@@ -108,7 +108,8 @@ async function loadContributorPage(){
   summary.classList.remove('is-loading');summary.textContent=selectedTrendIndustry+' · '+contributorTotal.toLocaleString('en-IN')+' contributing organisations · '+Number(rs.shipment_rows||0).toLocaleString('en-IN')+' shipment rows · '+Number(rs.distinct_shipments||0).toLocaleString('en-IN')+' distinct shipments · '+Number(rs.teus||0).toLocaleString('en-IN')+' TEUs · '+Number(rs.gross_weight||0).toLocaleString('en-IN')+' gross weight';
   const rows=(data.rows||[]).slice(0,10);renderContributorRows(rows);renderContributorChart(rows);
   note.textContent=contributorTotal?'Showing the top 10 organisations ranked by shipment rows. Download Excel for the complete contributor list and shipment-level records.':'No classified organisations contributed shipment rows for this vertical under the selected filters.';
- }catch(e){summary.classList.remove('is-loading');summary.textContent='Contributor data could not be loaded: '+e.message;note.textContent='Use Refresh contributors to retry. Excel export remains available.'}
+  return true;
+ }catch(e){summary.classList.remove('is-loading');summary.textContent='Contributor data could not be loaded: '+e.message;note.textContent='Use Refresh contributors to retry. Excel export remains available.';return false}
 }
 
 let contributorRefreshInProgress=false;
@@ -117,7 +118,7 @@ $('contributor-refresh').onclick=async()=>{
  contributorRefreshInProgress=true;
  const button=$('contributor-refresh'),status=$('contributor-refreshed');
  button.disabled=true;button.textContent='↻ Refreshing…';
- try{await contributorRecords();status.textContent='Last refreshed '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}
+ try{const loaded=await contributorRecords();status.textContent=loaded?'Last refreshed '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'Refresh failed — see contributor message above'}
  catch(e){status.textContent='Refresh failed: '+e.message}
  finally{contributorRefreshInProgress=false;button.disabled=false;button.textContent='↻ Refresh contributors'}
 };
@@ -125,7 +126,8 @@ async function contributorRecords(){
  contributorPage=0;shipmentRecordPage=0;
  const exportParams=trendParams($('trend-start').value,$('trend-end').value);exportParams.set('industry',selectedTrendIndustry);
  $('contributor-export').href='/api/classifications/contributors/export?'+exportParams.toString();
- await loadContributorPage();
+ if(!selectedTrendIndustry){$('contributor-summary').textContent='No classified industry is available for contributor analysis under the selected filters.';renderContributorRows([]);$('contributor-chart').replaceChildren();return false}
+ return await loadContributorPage();
 }
 async function contributorFilterOptions(){
  try{const params=trendParams($('trend-start').value,$('trend-end').value);const options=await api('/api/classifications/contributor-options?'+params);
@@ -170,6 +172,8 @@ async function shipmentTrend(){
    const value=document.createElement('strong');value.textContent=fmt(n);row.append(label,track,value);trendArea.append(row)}
  }
  if(selectedTrendIndustry&&!byIndustry.has(selectedTrendIndustry))selectedTrendIndustry='';
+ // Pick the leading classified vertical on first load so the contributor panel is useful immediately.
+ if(!selectedTrendIndustry)selectedTrendIndustry=ranked.find(item=>item.name!=='Unclassified')?.name||'';
  function drawContribution(){contribution.replaceChildren();for(const item of ranked.slice(0,12)){
    const button=document.createElement('button');button.type='button';button.className='ai-contribution-item'+(selectedTrendIndustry===item.name?' selected':'');
    const title=document.createElement('span');title.textContent=item.name;
