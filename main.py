@@ -652,10 +652,18 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
        FROM filtered) AS record_summary,
       (SELECT COUNT(*) FROM filtered) AS record_total"""
     engine=scoped_engine()
+    import time
+    query_started=time.perf_counter()
     try:
         with engine.connect() as conn:
             result=dict(conn.execute(text(sql),params).mappings().one())
-    finally: pass
+    except Exception as exc:
+        logger.error("Contributor aggregate query failed; industry=%s role=%s elapsed_ms=%d error_type=%s",
+                     industry,role,int((time.perf_counter()-query_started)*1000),type(exc).__name__)
+        raise
+    else:
+        logger.info("Contributor aggregate query completed; industry=%s role=%s elapsed_ms=%d",
+                    industry,role,int((time.perf_counter()-query_started)*1000))
     rows=result["rows"] or []
     records=[]
     if include_records:
