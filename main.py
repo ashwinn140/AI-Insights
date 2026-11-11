@@ -17,6 +17,7 @@ from app import independent_auth as auth
 from app.industry_master import INDUSTRY_VERTICALS, INDUSTRY_PROMPT
 from app.industry_explorer import summary, top_trade_lanes, company_appearances
 from app.company_discovery import search_companies, opportunity_candidates
+from functools import lru_cache
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
@@ -93,7 +94,10 @@ async def lifespan(app: FastAPI):
     logger.info('Independent auth bootstrap status: %s', bootstrap_status)
     if bootstrap_status == 'ready' and auth.provision_initial_admin():
         logger.info('Independent AI Insights admin provisioned from private environment configuration')
-    yield
+    try:
+        yield
+    finally:
+        close_scoped_engine()
 
 app = FastAPI(title="AI Insights Operations", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
@@ -179,27 +183,25 @@ def explorer(company: str | None = None, lob: str | None = None, user=Depends(cu
         if lob not in lobs:
             raise HTTPException(403, "Department not authorized")
         lobs = [lob]
-    from sqlalchemy.engine import URL
-    url = URL.create("postgresql+psycopg2", username=os.environ["SHIPMENT_DB_USER"],
-                     password=os.environ["SHIPMENT_DB_PASSWORD"],
-                     host=os.environ["SHIPMENT_DB_HOST"],
-                     port=int(os.environ["SHIPMENT_DB_PORT"]),
-                     database=os.environ["SHIPMENT_DB_NAME"])
-    engine = create_engine(url, pool_pre_ping=True, pool_size=1, max_overflow=0,
-        connect_args={"connect_timeout":5,"options":"-c default_transaction_read_only=on -c statement_timeout=10000"})
-    try:
-        return {"summary":summary(engine,companies=companies,lobs=lobs),
-                "lanes":top_trade_lanes(engine,companies=companies,lobs=lobs),
-                "participants":company_appearances(engine,companies=companies,lobs=lobs)}
-    finally:
-        engine.dispose()
+    engine = scoped_engine()
+    return {"summary":summary(engine,companies=companies,lobs=lobs),
+            "lanes":top_trade_lanes(engine,companies=companies,lobs=lobs),
+            "participants":company_appearances(engine,companies=companies,lobs=lobs)}
 
+@lru_cache(maxsize=1)
 def scoped_engine():
+    """One process-wide read-only pool, reused across requests."""
     url=URL.create("postgresql+psycopg2", username=os.environ["SHIPMENT_DB_USER"],
         password=os.environ["SHIPMENT_DB_PASSWORD"],host=os.environ["SHIPMENT_DB_HOST"],
         port=int(os.environ["SHIPMENT_DB_PORT"]),database=os.environ["SHIPMENT_DB_NAME"])
-    return create_engine(url,pool_pre_ping=True,pool_size=1,max_overflow=0,
+    return create_engine(url,pool_pre_ping=True,pool_size=2,max_overflow=2,pool_timeout=5,
         connect_args={"connect_timeout":5,"options":"-c default_transaction_read_only=on -c statement_timeout=10000"})
+
+def close_scoped_engine():
+    """Dispose the shared pool during application shutdown."""
+    if scoped_engine.cache_info().currsize:
+        scoped_engine().dispose()
+        scoped_engine.cache_clear()
 
 def classification_mapping(industry=None, include_evidence=False):
     """Return only unambiguous saved mappings, optionally scoped to one vertical.
@@ -271,7 +273,6 @@ def dashboard(company: str|None=None,lob: str|None=None,origin: str|None=None,
         return query_rows(engine,companies,lobs,
             dashboard_filters(origin,destination,shipper,consignee,branch,start,end))
     except ValueError as exc: raise HTTPException(400,str(exc))
-    finally: engine.dispose()
 
 @app.get("/api/dashboard/options")
 def dashboard_options(company: str|None=None,lob: str|None=None,origin: str|None=None,
@@ -284,7 +285,6 @@ def dashboard_options(company: str|None=None,lob: str|None=None,origin: str|None
         return filter_options(engine,companies,lobs,
             dashboard_filters(origin,destination,shipper,consignee,branch,start,end))
     except ValueError as exc: raise HTTPException(400,str(exc))
-    finally: engine.dispose()
 
 @app.get("/api/dashboard/export")
 def dashboard_export(company: str|None=None,lob: str|None=None,origin: str|None=None,
@@ -298,7 +298,6 @@ def dashboard_export(company: str|None=None,lob: str|None=None,origin: str|None=
             dashboard_filters(origin,destination,shipper,consignee,branch,start,end),limit=10000)
         output=analytics_export(data)
     except ValueError as exc: raise HTTPException(400,str(exc))
-    finally: engine.dispose()
     return StreamingResponse(BytesIO(output),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-operations.xlsx",
                  "Cache-Control":"no-store"})
@@ -380,7 +379,6 @@ def companies_api(company: str | None=None,lob: str | None=None,q: str="",
     if len(q)>100: raise HTTPException(400,"Search too long")
     engine=scoped_engine()
     try: return {"results":search_companies(engine,companies=companies,lobs=lobs,term=q,filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end))}
-    finally: engine.dispose()
 
 @app.get("/api/discovery/export")
 def discovery_export(kind: str,company: str|None=None,lob: str|None=None,
@@ -402,7 +400,6 @@ def discovery_export(kind: str,company: str|None=None,lob: str|None=None,
             fields=["name","appearances","lane_count"]
         output=workbook_bytes([(kind.title(),cols,[[r.get(k) for k in fields] for r in rows]),
             ("Applied filters",["Filter","Value"],[(k,str(v)) for k,v in filters.items() if v])])
-    finally: engine.dispose()
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-"+kind+".xlsx",
@@ -417,7 +414,6 @@ def opportunities_api(company: str | None=None,lob: str | None=None,
     try: return {"results":opportunity_candidates(engine,companies=companies,lobs=lobs,
                      filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end)),
                  "disclaimer":"Activity-based candidates only. Not verified new prospects or industry classifications."}
-    finally: engine.dispose()
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(user=Depends(require_admin)):
@@ -507,8 +503,6 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     try:
         with engine.connect() as conn:
             rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
-    finally:
-        engine.dispose()
     return {"role":role,"rows":rows,"classification_basis":"Saved classifications; exact normalized counterparty match; shipment rows, not unique jobs.",
             "total":sum(int(r["shipments"]) for r in rows)}
 
@@ -553,7 +547,6 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     try:
         with engine.connect() as conn:
             result={k:[dict(r) for r in conn.execute(text(base+" "+q),params).mappings()] for k,q in queries.items()}
-    finally: engine.dispose()
     return {"industry":industry,"role":role,"data":result,
             "notes":["Counts are operational shipment rows, not financial contribution.",
                      "Agent nomination, salesperson and introducer are not in the verified restricted view; not inferred."]}
@@ -570,7 +563,6 @@ def classification_contributor_options(company:str|None=None,lob:str|None=None,
         return filter_options(engine,companies,lobs,{"origin":origin,"destination":destination,
             "shipper":shipper,"consignee":consignee,"branch":branch,"start":start,"end":end})
     except ValueError as exc: raise HTTPException(400,str(exc))
-    finally: engine.dispose()
 
 @app.get("/api/classifications/contributors")
 def classification_contributors(industry:str,company:str|None=None,lob:str|None=None,
@@ -651,7 +643,6 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
     try:
         with engine.connect() as conn:
             result=dict(conn.execute(text(sql),params).mappings().one())
-    finally: engine.dispose()
     rows=result["rows"] or []
     records=[]
     if include_records:
@@ -774,8 +765,6 @@ def classification_pending_template(user=Depends(current_user)):
     except Exception as exc:
         logger.warning("Pending workbook shipment discovery unavailable (%s)",type(exc).__name__)
         raise HTTPException(503,"The authorised shipment source is not ready for classification export.")
-    finally:
-        engine.dispose()
     ordered=sorted(merged.values(),
         key=lambda row:(-row["appearances"],row["company_name"].casefold()))
     output=classification_workbook_with_prompt([
@@ -840,8 +829,6 @@ def salesperson_industry(company:str|None=None,lob:str|None=None,start:str|None=
     except Exception as exc:
         logger.warning("Salesperson industry query unavailable (%s)",type(exc).__name__)
         raise HTTPException(503,"Salesperson source field is not yet available. Apply the expanded read-only shipment view.")
-    finally:
-        engine.dispose()
     return {"rows":rows,"basis":"ERP Sales Person source field; job_owner is separate; export attributed to shipper and import to consignee; saved classifications with a valid industry only."}
 
 @app.get("/api/classifications/salesperson-industry/export")
@@ -900,7 +887,6 @@ def reconciliation(user=Depends(require_admin)):
             """),{"companies":user["companies"],"lobs":user["lobs"]}).mappings()]
         return {"rows":rows,"total":sum(int(x["shipment_rows"]) for x in rows),
                 "status":"Aggregated reconciliation only; independently sourced registers not yet compared"}
-    finally: engine.dispose()
 
 @app.get("/api/admin/users")
 def admin_users(user=Depends(require_admin)):
