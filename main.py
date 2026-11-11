@@ -583,120 +583,109 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
              "shipper":shipper,"consignee":consignee,"branch":branch}
     try: where,params=conditions(companies,lobs,filters)
     except ValueError as exc: raise HTTPException(400,str(exc))
-    # Only send the selected vertical's mappings to PostgreSQL. Sending the entire
-    # classification register (1MB+) repeatedly for every contributor query caused
-    # statement timeouts and HTTP 500s on this endpoint.
-    with auth.connection() as db:
-        # Keep only unambiguous companies in the requested vertical. The HAVING
-        # clause checks the full register so a duplicate company mapped to two
-        # verticals is not accidentally treated as verified for either one.
-        # Restrict the payload to this one vertical before grouping. The earlier
-        # query grouped and serialised the entire classification register for every
-        # request; on production this produced a ~384 KB JSON mapping and caused
-        # the PostgreSQL statement timeout. The correlated check still excludes
-        # names mapped to multiple industries, without shipping unrelated rows.
-        mapping=classification_mapping(industry, include_evidence=True)
-    import json
-    params["mapping"]=json.dumps(mapping); params["industry"]=industry; params["role"]=role; params["limit"]=min(max(int(limit),1),50000); params["offset"]=max(int(offset),0); params["record_limit"]=min(max(int(record_limit),1),50000); params["record_offset"]=max(int(record_offset),0)
+    # Keep the cross-database mapping payload to names and verticals only.
+    # Evidence text can be large and is enriched in Python after the shipment query.
+    mapping=classification_mapping(industry, include_evidence=True)
+    import json, time
+    evidence_by_name={
+        str(row["company_name"]).strip().casefold(): row
+        for row in mapping if row.get("company_name")
+    }
+    compact_mapping=[
+        {"company_name":row["company_name"],"industry":row["industry"]}
+        for row in mapping
+    ]
+    params["mapping"]=json.dumps(compact_mapping,separators=(",",":"))
+    params["industry"]=industry
+    params["role"]=role
+    params["limit"]=min(max(int(limit),1),500)
+    params["offset"]=max(int(offset),0)
+    params["record_limit"]=min(max(int(record_limit),1),50000)
+    params["record_offset"]=max(int(record_offset),0)
     party=("CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END"
            if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
     other=("CASE WHEN s.report_type IN ('AE','OE') THEN s.consignee ELSE s.shipper END"
            if role=="primary" else ("s.consignee" if role=="shipper" else "s.shipper"))
-    sql=f"""WITH industry_map AS (
-      SELECT LOWER(BTRIM(company_name)) AS normalized_name,
-             CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) END AS industry,
-             MIN(country) AS country, MIN(confidence) AS confidence, MIN(source) AS evidence
-      FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
-        AS x(company_name text,industry text,country text,confidence text,source text)
-      GROUP BY 1
-    ), filtered AS MATERIALIZED (
-      -- Keep the materialized working set narrow. The source view contains
-      -- additional operational columns that contributor analytics never reads;
-      -- SELECT s.* inflated the temporary relation and made repeated aggregate
-      -- passes hit the 10-second statement timeout.
-      SELECT s.key,s.shipment_date,s.company,s.report_type,s.teus,s.gross_wt,
-             s.salesperson,s.job_owner,s.shipper,s.consignee,s.origin,
-             s.destination,s.branch,
-             NULLIF(BTRIM({party}),'') AS contributor,
-             NULLIF(BTRIM({other}),'') AS related_party,
-             CASE WHEN s.report_type IN ('AE','OE') THEN 'Shipper' ELSE 'Consignee' END AS attributed_role,
-             m.country,m.confidence,m.evidence
-      FROM ai_insights_source.current_shipments s
-      JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
-                          AND m.industry=:industry
-      WHERE {where}
-    ), grouped AS MATERIALIZED (
-      SELECT contributor AS organisation,
-             CASE WHEN :role='shipper' THEN 'Shipper'
-                  WHEN :role='consignee' THEN 'Consignee'
-                  ELSE CASE WHEN COUNT(DISTINCT attributed_role)=1
-                            THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END
-             END AS contributor_role,
-             COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
-             COUNT(DISTINCT related_party) AS distinct_related_parties,
-             COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
-             STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
-             STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners,
-             MIN(country) AS country,MIN(confidence) AS confidence,MIN(evidence) AS evidence
-      FROM filtered WHERE contributor IS NOT NULL
-      GROUP BY contributor
-    )
-    SELECT
-      COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY page.shipment_rows DESC,page.organisation)
-                FROM (SELECT * FROM grouped ORDER BY shipment_rows DESC,organisation
-                      LIMIT :limit OFFSET :offset) page),'[]'::jsonb) AS rows,
-      (SELECT COUNT(*) FROM grouped) AS contributor_total,
-      (SELECT jsonb_build_object(
-          'shipment_rows',COUNT(*),'distinct_shipments',COUNT(DISTINCT key),
-          'teus',COALESCE(SUM(teus),0),'gross_weight',COALESCE(SUM(gross_wt),0))
-       FROM filtered) AS record_summary,
-      (SELECT COUNT(*) FROM filtered) AS record_total"""
+    base_cte=f"""WITH industry_map AS (
+       SELECT LOWER(BTRIM(company_name)) AS normalized_name, MIN(industry) AS industry
+       FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
+         AS x(company_name text,industry text)
+       GROUP BY 1
+    ), scoped AS (
+       SELECT s.key,s.shipment_date,s.company,s.report_type,s.teus,s.gross_wt,
+              s.salesperson,s.job_owner,s.shipper,s.consignee,s.origin,
+              s.destination,s.branch,
+              NULLIF(BTRIM({party}),'') AS contributor,
+              NULLIF(BTRIM({other}),'') AS related_party,
+              CASE WHEN s.report_type IN ('AE','OE') THEN 'Shipper' ELSE 'Consignee' END AS attributed_role
+       FROM ai_insights_source.current_shipments s
+       JOIN industry_map m
+         ON LOWER(BTRIM({party}))=m.normalized_name AND m.industry=:industry
+       WHERE {where}
+    )"""
     engine=scoped_engine()
-    import time
     query_started=time.perf_counter()
     try:
+        # Keep expensive contributor grouping separate from the simple shipment
+        # summary. This avoids repeated DISTINCT aggregates over one materialized
+        # working set, which exceeded the production statement timeout.
+        grouped_sql=base_cte+""" SELECT contributor AS organisation,
+              CASE WHEN :role='shipper' THEN 'Shipper'
+                   WHEN :role='consignee' THEN 'Consignee'
+                   ELSE CASE WHEN COUNT(DISTINCT attributed_role)=1
+                             THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END
+              END AS contributor_role,
+              COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
+              COUNT(DISTINCT related_party) AS distinct_related_parties,
+              COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
+              STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
+              STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners
+       FROM scoped WHERE contributor IS NOT NULL
+       GROUP BY contributor
+       ORDER BY shipment_rows DESC,organisation
+       LIMIT :limit OFFSET :offset"""
         with engine.connect() as conn:
-            result=dict(conn.execute(text(sql),params).mappings().one())
+            rows=[dict(row) for row in conn.execute(text(grouped_sql),params).mappings()]
+        total_sql=base_cte+""" SELECT COUNT(DISTINCT contributor) AS contributor_total,
+              COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
+              COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight
+       FROM scoped"""
+        with engine.connect() as conn:
+            summary=dict(conn.execute(text(total_sql),params).mappings().one())
+        contributor_total=int(summary.pop("contributor_total") or 0)
+        shipment_record_total=int(summary.get("shipment_rows") or 0)
+        for row in rows:
+            evidence=evidence_by_name.get(str(row["organisation"]).strip().casefold(),{})
+            row["country"]=evidence.get("country")
+            row["confidence"]=evidence.get("confidence")
+            row["evidence"]=evidence.get("source")
+        records=[]
+        if include_records:
+            records_sql=base_cte+""" SELECT key AS shipment_key,shipment_date,company,report_type,
+                         shipper,consignee,origin,destination,branch,salesperson,job_owner
+                  FROM scoped
+                  ORDER BY shipment_date DESC NULLS LAST,key
+                  LIMIT :record_limit OFFSET :record_offset"""
+            with engine.connect() as conn:
+                records=[dict(row) for row in conn.execute(text(records_sql),params).mappings()]
+            for row in records:
+                evidence=evidence_by_name.get(
+                    str(row["shipper"] if role=="shipper" or (role=="primary" and row["report_type"] in ("AE","OE"))
+                        else row["consignee"] or "").strip().casefold(),{})
+                row["evidence"]=evidence.get("source")
+                row["confidence"]=evidence.get("confidence")
     except Exception as exc:
         logger.error("Contributor aggregate query failed; industry=%s role=%s elapsed_ms=%d error_type=%s",
                      industry,role,int((time.perf_counter()-query_started)*1000),type(exc).__name__)
         raise
-    else:
-        logger.info("Contributor aggregate query completed; industry=%s role=%s elapsed_ms=%d",
-                    industry,role,int((time.perf_counter()-query_started)*1000))
-    rows=result["rows"] or []
-    records=[]
-    if include_records:
-        records_sql=sql.replace(
-            """    SELECT
-      COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY page.shipment_rows DESC,page.organisation)
-                FROM (SELECT * FROM grouped ORDER BY shipment_rows DESC,organisation
-                      LIMIT :limit OFFSET :offset) page),'[]'::jsonb) AS rows,
-      (SELECT COUNT(*) FROM grouped) AS contributor_total,
-      (SELECT jsonb_build_object(
-          'shipment_rows',COUNT(*),'distinct_shipments',COUNT(DISTINCT key),
-          'teus',COALESCE(SUM(teus),0),'gross_weight',COALESCE(SUM(gross_wt),0))
-       FROM filtered) AS record_summary,
-      (SELECT COUNT(*) FROM filtered) AS record_total""",
-            """    SELECT COALESCE((SELECT jsonb_agg(to_jsonb(page)
-                ORDER BY page.shipment_date DESC NULLS LAST,page.shipment_key)
-                FROM (SELECT key AS shipment_key,shipment_date,company,report_type,
-                             shipper,consignee,origin,destination,branch,
-                             salesperson,job_owner,evidence,confidence
-                      FROM filtered
-                      ORDER BY shipment_date DESC NULLS LAST,key
-                      LIMIT :record_limit OFFSET :record_offset) page),'[]'::jsonb) AS records"""
-        )
-        with engine.connect() as conn:
-            records_result=conn.execute(text(records_sql),params).mappings().one()
-            records=records_result["records"] or []
-    summary_row=result["record_summary"] or {"shipment_rows":0,"distinct_shipments":0,"teus":0,"gross_weight":0}
-    contributor_total=int(result["contributor_total"] or 0)
-    shipment_record_total=int(result["record_total"] or 0)
-    return {"industry":industry,"role":role,"rows":rows,"records":records,"contributor_total":contributor_total,"record_total":shipment_record_total,"record_summary":summary_row,
+    logger.info("Contributor aggregate query completed; industry=%s role=%s elapsed_ms=%d",
+                industry,role,int((time.perf_counter()-query_started)*1000))
+    return {"industry":industry,"role":role,"rows":rows,"records":records,
+            "contributor_total":contributor_total,"record_total":shipment_record_total,
+            "record_summary":summary,
             "calculation":{"contributor_organisations":contributor_total,
-                "shipment_rows":sum(int(r["shipment_rows"] or 0) for r in rows),
-                "distinct_shipments_sum":sum(int(r["distinct_shipments"] or 0) for r in rows),
+                "shipment_rows":sum(int(row["shipment_rows"] or 0) for row in rows),
+                "distinct_shipments_sum":sum(int(row["distinct_shipments"] or 0) for row in rows),
                 "basis":"Shipment rows are counted per attributed organisation. Distinct shipment keys are per organisation and are not additive across organisations."},
             "evidence_basis":"Classification source saved for each organisation; URL links open directly, other notes remain text."}
 
