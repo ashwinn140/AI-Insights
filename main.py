@@ -610,7 +610,14 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
         AS x(company_name text,industry text,country text,confidence text,source text)
       GROUP BY 1
     ), filtered AS MATERIALIZED (
-      SELECT s.*, NULLIF(BTRIM({party}),'') AS contributor,
+      -- Keep the materialized working set narrow. The source view contains
+      -- additional operational columns that contributor analytics never reads;
+      -- SELECT s.* inflated the temporary relation and made repeated aggregate
+      -- passes hit the 10-second statement timeout.
+      SELECT s.key,s.shipment_date,s.company,s.report_type,s.teus,s.gross_wt,
+             s.salesperson,s.job_owner,s.shipper,s.consignee,s.origin,
+             s.destination,s.branch,
+             NULLIF(BTRIM({party}),'') AS contributor,
              NULLIF(BTRIM({other}),'') AS related_party,
              CASE WHEN s.report_type IN ('AE','OE') THEN 'Shipper' ELSE 'Consignee' END AS attributed_role,
              m.country,m.confidence,m.evidence
