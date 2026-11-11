@@ -380,6 +380,7 @@ def companies_api(company: str | None=None,lob: str | None=None,q: str="",
     engine=scoped_engine()
     try: return {"results":search_companies(engine,companies=companies,lobs=lobs,term=q,filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end))}
 
+    finally: pass
 @app.get("/api/discovery/export")
 def discovery_export(kind: str,company: str|None=None,lob: str|None=None,
                      origin: str|None=None,destination: str|None=None,
@@ -400,6 +401,7 @@ def discovery_export(kind: str,company: str|None=None,lob: str|None=None,
             fields=["name","appearances","lane_count"]
         output=workbook_bytes([(kind.title(),cols,[[r.get(k) for k in fields] for r in rows]),
             ("Applied filters",["Filter","Value"],[(k,str(v)) for k,v in filters.items() if v])])
+    finally: pass
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-"+kind+".xlsx",
@@ -415,6 +417,7 @@ def opportunities_api(company: str | None=None,lob: str | None=None,
                      filters=dashboard_filters(origin=origin,destination=destination,branch=branch,start=start,end=end)),
                  "disclaimer":"Activity-based candidates only. Not verified new prospects or industry classifications."}
 
+    finally: pass
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page(user=Depends(require_admin)):
     return Path(__file__).parent.joinpath("app/admin.html").read_text()
@@ -503,6 +506,7 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     try:
         with engine.connect() as conn:
             rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
+    finally: pass
     return {"role":role,"rows":rows,"classification_basis":"Saved classifications; exact normalized counterparty match; shipment rows, not unique jobs.",
             "total":sum(int(r["shipments"]) for r in rows)}
 
@@ -547,6 +551,7 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     try:
         with engine.connect() as conn:
             result={k:[dict(r) for r in conn.execute(text(base+" "+q),params).mappings()] for k,q in queries.items()}
+    finally: pass
     return {"industry":industry,"role":role,"data":result,
             "notes":["Counts are operational shipment rows, not financial contribution.",
                      "Agent nomination, salesperson and introducer are not in the verified restricted view; not inferred."]}
@@ -643,6 +648,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
     try:
         with engine.connect() as conn:
             result=dict(conn.execute(text(sql),params).mappings().one())
+    finally: pass
     rows=result["rows"] or []
     records=[]
     if include_records:
@@ -888,6 +894,7 @@ def reconciliation(user=Depends(require_admin)):
         return {"rows":rows,"total":sum(int(x["shipment_rows"]) for x in rows),
                 "status":"Aggregated reconciliation only; independently sourced registers not yet compared"}
 
+    finally: pass
 @app.get("/api/admin/users")
 def admin_users(user=Depends(require_admin)):
     return {"users":auth.list_users()}
