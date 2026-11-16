@@ -398,16 +398,6 @@ def classification_xlsx_export(user=Depends(current_user)):
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-complete-classification-data.xlsx","Cache-Control":"no-store"})
-@app.get("/api/classifications/lookup")
-def classification_lookup(company_name:str,user=Depends(current_user)):
-    name=(company_name or "").strip()
-    if not 2<=len(name)<=200:
-        raise HTTPException(400,"Enter an organisation name between 2 and 200 characters")
-    with auth.connection() as db:
-        row=db.execute("""SELECT company_name,country,industry,confidence,source,updated_at
-            FROM classifications WHERE company_name=? COLLATE NOCASE""",(name,)).fetchone()
-    return {"found":bool(row),"record":dict(row) if row else None}
-
 @app.get("/api/classifications/unique-verticals")
 @app.get("/api/admin/classifications/unique-verticals")
 def classification_unique_verticals(user=Depends(current_user)):
@@ -1022,6 +1012,16 @@ async def admin_reset(uid: int, request: Request, user=Depends(require_admin)):
         return {"ok":True}
     except (ValueError,KeyError,TypeError) as exc:
         raise HTTPException(400,str(exc))
+
+@app.get("/api/classifications/lookup")
+def classification_lookup(company_name:str,user=Depends(current_user)):
+    name=(company_name or "").strip()
+    if not 2<=len(name)<=200:
+        raise HTTPException(400,"Enter an organisation name between 2 and 200 characters")
+    with auth.connection() as db:
+        row=db.execute("""SELECT company_name,country,industry,confidence,source,updated_at
+            FROM classifications WHERE company_name=? COLLATE NOCASE""",(name,)).fetchone()
+    return {"found":bool(row),"record":dict(row) if row else None}
 
 @app.get("/api/{path:path}")
 def locked_api(path: str):
