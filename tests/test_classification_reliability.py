@@ -70,7 +70,7 @@ class ClassificationReliabilityTests(unittest.TestCase):
         if not node:
             self.skipTest("Node.js is not installed")
         page = Path("app/classifications.html").read_text()
-        scripts = re.findall(r"<script\\b[^>]*>([\\s\\S]*?)</script>", page, re.IGNORECASE)
+        scripts = re.findall(r"<script\b[^>]*>([\s\S]*?)</script>", page, re.IGNORECASE)
         self.assertTrue(scripts)
         for script in scripts:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".js", encoding="utf-8") as handle:
