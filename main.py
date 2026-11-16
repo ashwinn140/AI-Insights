@@ -6,7 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
 from pathlib import Path
 from urllib.parse import urlsplit
 from io import BytesIO
@@ -101,6 +101,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI Insights Operations", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
+
+@app.middleware("http")
+async def redirect_unauthenticated_browser_pages(request: Request, call_next):
+    """Send browser page requests to the sign-in screen; keep API 401s as JSON."""
+    response = await call_next(request)
+    accepts_html = "text/html" in request.headers.get("accept", "").lower()
+    if response.status_code == 401 and request.method == "GET" and accepts_html:
+        return RedirectResponse(url="/", status_code=303)
+    return response
 
 @app.get("/healthz")
 def healthz():
