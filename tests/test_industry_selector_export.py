@@ -106,6 +106,10 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
         self.assertEqual(sheets[3][2][0][0], "JOB-001")
 
 
+async def _read_streaming_response(response):
+    return b"".join([chunk async for chunk in response.body_iterator])
+
+
 class ClassificationDownloadWorkflowTests(unittest.TestCase):
     def test_pending_workbook_excludes_saved_classifications_case_insensitively(self):
         from unittest.mock import patch
@@ -134,7 +138,9 @@ class ClassificationDownloadWorkflowTests(unittest.TestCase):
              patch.object(main, "allowed_scope", return_value=(["Company"], ["AE"])), \
              patch.object(main, "scoped_engine", return_value=engine):
             response = main.classification_pending_template(user={"id": 1})
-        wb = load_workbook(BytesIO(response.body), read_only=True, data_only=True)
+        import asyncio
+        payload = asyncio.run(_read_streaming_response(response))
+        wb = load_workbook(BytesIO(payload), read_only=True, data_only=True)
         rows = list(wb["Pending classification"].iter_rows(values_only=True))
         wb.close()
         names = [row[0] for row in rows[1:]]
@@ -155,7 +161,9 @@ class ClassificationDownloadWorkflowTests(unittest.TestCase):
              patch.object(main, "workbook_bytes", wraps=main.workbook_bytes):
             response = main.classification_already_classified_export(user={"id": 1})
         self.assertIn("ai-insights-already-classified.xlsx", response.headers["content-disposition"])
-        wb = load_workbook(BytesIO(response.body), read_only=True, data_only=True)
+        import asyncio
+        payload = asyncio.run(_read_streaming_response(response))
+        wb = load_workbook(BytesIO(payload), read_only=True, data_only=True)
         rows = list(wb["Already classified"].iter_rows(values_only=True))
         wb.close()
         self.assertEqual(rows[0], ("company_name", "industry", "confidence", "source", "country"))
