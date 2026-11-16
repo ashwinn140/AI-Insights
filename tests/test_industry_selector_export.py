@@ -39,6 +39,16 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
         self.assertLess(page.index("initContributorIndustrySelector();"),
                         page.index("api('/auth/me').then"))
 
+    def test_contributor_excel_is_promoted_as_available_during_dashboard_loading(self):
+        from pathlib import Path
+
+        page = Path("app/classifications.html").read_text()
+        self.assertIn("Need the detailed data while this loads?", page)
+        self.assertIn("works independently of dashboard refresh", page)
+        self.assertIn('href="/api/classifications/contributors/export" download>↓ Download contributor Excel</a>', page)
+        self.assertIn('id="contributor-export"', page, "Keep the original detailed download below the table")
+        self.assertEqual(page.count('href="/api/classifications/contributors/export"'), 2)
+
     def test_contributor_export_needs_no_industry_selection_or_refresh(self):
         record = {
             "shipment_key": "JOB-001",
