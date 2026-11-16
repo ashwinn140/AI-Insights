@@ -106,5 +106,69 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
         self.assertEqual(sheets[3][2][0][0], "JOB-001")
 
 
+class ClassificationDownloadWorkflowTests(unittest.TestCase):
+    def test_pending_workbook_excludes_saved_classifications_case_insensitively(self):
+        from unittest.mock import patch
+        from openpyxl import load_workbook
+        from io import BytesIO
+
+        saved = [
+            {"company_name": "Classified Co", "industry": INDUSTRY_VERTICALS[0],
+             "country": "India", "confidence": "high", "source": "verified source"},
+            {"company_name": "Pending Saved Co", "industry": "", "country": "India",
+             "confidence": "low", "source": "Awaiting fresh evidence"},
+        ]
+        pending = [
+            {"company_name": "CLASSIFIED CO", "country": "India", "appearances": 4},
+            {"company_name": "Research Pending Co", "country": "India", "appearances": 3},
+        ]
+        engine = MagicMock()
+        connection = MagicMock()
+        engine.connect.return_value.__enter__.return_value = connection
+        connection.execute.return_value.mappings.return_value = [
+            {"company_name": "classified co", "appearances": 9},
+            {"company_name": "Shipment Pending Co", "appearances": 2},
+        ]
+        with patch.object(main.auth, "classification_rows_for_workbook", return_value=saved), \
+             patch.object(main.auth, "pending_classification_names", return_value=pending), \
+             patch.object(main, "allowed_scope", return_value=(["Company"], ["AE"])), \
+             patch.object(main, "scoped_engine", return_value=engine):
+            response = main.classification_pending_template(user={"id": 1})
+        wb = load_workbook(BytesIO(response.body), read_only=True, data_only=True)
+        rows = list(wb["Pending classification"].iter_rows(values_only=True))
+        wb.close()
+        names = [row[0] for row in rows[1:]]
+        self.assertCountEqual(names, ["Pending Saved Co", "Research Pending Co", "Shipment Pending Co"])
+        self.assertNotIn("Classified Co", names)
+        self.assertTrue(all(not row[1] for row in rows[1:]))
+
+    def test_already_classified_download_contains_only_nonblank_saved_industries(self):
+        from unittest.mock import patch
+        from openpyxl import load_workbook
+        from io import BytesIO
+
+        saved = [
+            {"company_name": "Classified Co", "industry": INDUSTRY_VERTICALS[0],
+             "country": "India", "confidence": "high", "source": "verified source"},
+        ]
+        with patch.object(main, "_saved_classification_export_rows", return_value=saved), \
+             patch.object(main, "workbook_bytes", wraps=main.workbook_bytes):
+            response = main.classification_already_classified_export(user={"id": 1})
+        self.assertIn("ai-insights-already-classified.xlsx", response.headers["content-disposition"])
+        wb = load_workbook(BytesIO(response.body), read_only=True, data_only=True)
+        rows = list(wb["Already classified"].iter_rows(values_only=True))
+        wb.close()
+        self.assertEqual(rows[0], ("company_name", "industry", "confidence", "source", "country"))
+        self.assertEqual(rows[1][0], "Classified Co")
+        self.assertEqual(rows[1][1], INDUSTRY_VERTICALS[0])
+
+    def test_upload_refresh_uses_current_page_refresh_functions(self):
+        from pathlib import Path
+        page = Path("app/classifications.html").read_text()
+        self.assertIn("Promise.all([industryStatus(),refreshIndustryViews()])", page)
+        self.assertNotIn("await load()", page)
+        self.assertIn('href="/api/classifications/already-classified" download', page)
+
+
 if __name__ == "__main__":
     unittest.main()
