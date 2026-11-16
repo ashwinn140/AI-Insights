@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
 from pathlib import Path
+from html import escape as html_escape
 from urllib.parse import urlsplit
 from io import BytesIO
 from app.crossfilter import query_rows,filter_options
@@ -147,9 +148,21 @@ def current_user(request: Request):
         raise HTTPException(401, "Authentication required")
     return user
 
+def render_classification_page():
+    """Render every industry selector from the single canonical industry master."""
+    page = Path(__file__).parent.joinpath("app/classifications.html").read_text()
+    options = "".join(
+        f'<option value="{html_escape(industry, quote=True)}">{html_escape(industry)}</option>'
+        for industry in INDUSTRY_VERTICALS
+    )
+    contributor_options = options + '<option value="Unclassified">Unclassified</option>'
+    page = page.replace("<!-- INDUSTRY_OPTIONS -->", options)
+    page = page.replace("<!-- CONTRIBUTOR_INDUSTRY_OPTIONS -->", contributor_options)
+    return page
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return Path(__file__).parent.joinpath("app/classifications.html").read_text()
+    return render_classification_page()
 
 @app.get("/operations", response_class=HTMLResponse)
 def operations_page(user=Depends(current_user)):
@@ -538,7 +551,7 @@ def shared_ui_js():
 
 @app.get("/classifications",response_class=HTMLResponse)
 def classification_page(user=Depends(current_user)):
-    return Path(__file__).parent.joinpath("app/classifications.html").read_text()
+    return render_classification_page()
 
 @app.get("/api/classifications/shipment-trend")
 def classification_shipment_trend(company: str|None=None,lob: str|None=None,
@@ -768,24 +781,143 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
             "evidence_basis":"Classification source saved for each organisation; URL links open directly, other notes remain text."}
 
 @app.get("/api/classifications/contributors/export")
-def classification_contributors_export(industry:str,company:str|None=None,lob:str|None=None,
-        start:str|None=None,end:str|None=None,role:str="primary",origin:str|None=None,
-        destination:str|None=None,shipper:str|None=None,consignee:str|None=None,
-        branch:str|None=None,limit:int=50000,user=Depends(current_user)):
-    data=classification_contributors(industry,company,lob,start,end,role,origin,destination,shipper,consignee,branch,limit,0,50000,0,True,user)
-    rows=data["rows"]; records=data["records"]; summary=data["record_summary"]
+def classification_contributors_export(user=Depends(current_user)):
+    """Download the full contributor workbook for all industries without a UI selection or refresh."""
+    import json
+    companies,lobs=allowed_scope(user,None,None)
+    mapping=classification_mapping(include_evidence=True)
+    params={
+        "mapping":json.dumps(mapping,separators=(",",":")),
+        "companies":companies,
+        "lobs":lobs,
+    }
+    party="CASE WHEN s.report_type IN ('AE','OE') THEN s.shipper ELSE s.consignee END"
+    other="CASE WHEN s.report_type IN ('AE','OE') THEN s.consignee ELSE s.shipper END"
+    sql=f"""WITH industry_map AS (
+        SELECT LOWER(BTRIM(company_name)) AS normalized_name,
+               MIN(industry) AS industry,
+               MIN(country) AS country,
+               MIN(confidence) AS confidence,
+               MIN(source) AS source
+        FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
+          AS x(company_name text,industry text,country text,confidence text,source text)
+        GROUP BY LOWER(BTRIM(company_name))
+        HAVING COUNT(DISTINCT industry)=1
+    ), scoped AS (
+        SELECT s.key,s.shipment_date,s.company,s.report_type,
+               s.shipper,s.consignee,s.origin,s.destination,s.branch,
+               s.salesperson,s.job_owner,m.industry,m.country,m.confidence,m.source AS evidence,
+               NULLIF(BTRIM({party}),'') AS contributor,
+               NULLIF(BTRIM({other}),'') AS related_party,
+               CASE WHEN s.report_type IN ('AE','OE') THEN 'Shipper' ELSE 'Consignee' END AS attributed_role
+        FROM ai_insights_source.current_shipments s
+        JOIN industry_map m ON LOWER(BTRIM({party}))=m.normalized_name
+        WHERE s.company=ANY(:companies) AND s.report_type=ANY(:lobs)
+    ), contributor_agg AS (
+        SELECT industry,contributor AS organisation,
+               CASE WHEN COUNT(DISTINCT attributed_role)=1
+                    THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END AS contributor_role,
+               COUNT(*) AS shipment_rows,
+               COUNT(DISTINCT key) AS distinct_shipments,
+               COUNT(DISTINCT related_party) AS distinct_related_parties,
+               COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
+               STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
+               STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners,
+               MIN(country) AS country,MIN(confidence) AS confidence,MIN(evidence) AS evidence
+        FROM scoped
+        WHERE contributor IS NOT NULL
+        GROUP BY industry,contributor
+    ), ranked AS (
+        SELECT contributor_agg.*,
+               ROW_NUMBER() OVER (PARTITION BY industry ORDER BY shipment_rows DESC,organisation) AS industry_rank
+        FROM contributor_agg
+    )
+    SELECT s.key AS shipment_key,s.shipment_date,s.company,s.report_type,
+           s.industry,s.shipper,s.consignee,s.origin,s.destination,s.branch,
+           s.salesperson,s.job_owner,s.evidence,s.confidence,s.country,
+           r.organisation,r.contributor_role,r.shipment_rows,r.distinct_shipments,
+           r.distinct_related_parties,r.salesperson_count,r.salespersons,r.job_owners,r.industry_rank
+    FROM scoped s
+    JOIN ranked r ON r.industry=s.industry AND r.organisation=s.contributor
+    ORDER BY s.industry,r.industry_rank,s.shipment_date DESC NULLS LAST,s.key"""
+    engine=scoped_engine()
+    try:
+        with engine.connect() as conn:
+            result=conn.execute(text(sql),params).mappings()
+            records=[dict(row) for row in result]
+    except Exception as exc:
+        logger.error("Contributor workbook export failed; error_type=%s",type(exc).__name__)
+        raise
+
+    contributor_rows=[]
+    top_rows=[]
+    seen=set()
+    shipment_keys=set()
+    for record in records:
+        shipment_keys.add(record.get("shipment_key"))
+        key=(record.get("industry"),record.get("organisation"))
+        if key in seen:
+            continue
+        seen.add(key)
+        row={
+            "industry":record.get("industry"),
+            "organisation":record.get("organisation"),
+            "contributor_role":record.get("contributor_role"),
+            "shipment_rows":record.get("shipment_rows"),
+            "distinct_shipments":record.get("distinct_shipments"),
+            "distinct_related_parties":record.get("distinct_related_parties"),
+            "salesperson_count":record.get("salesperson_count"),
+            "salespersons":record.get("salespersons"),
+            "job_owners":record.get("job_owners"),
+            "country":record.get("country"),
+            "confidence":record.get("confidence"),
+            "evidence":record.get("evidence"),
+            "rank":record.get("industry_rank"),
+        }
+        contributor_rows.append(row)
+        if int(record.get("industry_rank") or 0)<=10:
+            top_rows.append(row)
+
+    contributor_headers=["Rank","Organisation","Industry vertical","Role","Shipment rows","Distinct shipments",
+        "Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"]
+    contributor_values=lambda row:[
+        row.get("rank"),row.get("organisation"),row.get("industry"),row.get("contributor_role"),
+        row.get("shipment_rows"),row.get("distinct_shipments"),row.get("distinct_related_parties"),
+        row.get("salesperson_count"),row.get("salespersons"),row.get("job_owners"),
+        row.get("country"),row.get("confidence"),row.get("evidence")
+    ]
+    shipment_headers=["Shipment key","Shipment date","Company","Department","Industry vertical","Shipper","Consignee",
+        "Origin","Destination","Branch","ERP Sales Person","Job owner","Classification evidence","Confidence","Country"]
+    shipment_values=lambda row:[
+        row.get("shipment_key"),row.get("shipment_date"),row.get("company"),row.get("report_type"),
+        row.get("industry"),row.get("shipper"),row.get("consignee"),row.get("origin"),row.get("destination"),
+        row.get("branch"),row.get("salesperson"),row.get("job_owner"),row.get("evidence"),
+        row.get("confidence"),row.get("country")
+    ]
     output=workbook_bytes([
-      ("Calculation",["Metric","Value"],[[k,v] for k,v in summary.items()]+[[k,v] for k,v in data["calculation"].items()]),
-      ("Top 10 Contributors",["Rank","Organisation","Industry vertical","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
-       [[i+1,r.get("organisation"),industry]+[r.get(k) for k in ["contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for i,r in enumerate(rows[:10])]),
-      ("Complete Contributor List",["Rank","Organisation","Industry vertical","Role","Shipment rows","Distinct shipments","Related parties","Salesperson count","Salespersons","Job owners","Country","Confidence","Evidence"],
-       [[i+1,r.get("organisation"),industry]+[r.get(k) for k in ["contributor_role","shipment_rows","distinct_shipments","distinct_related_parties","salesperson_count","salespersons","job_owners","country","confidence","evidence"]] for i,r in enumerate(rows)]),
-      ("Shipment records",["Shipment key","Shipment date","Company","Department","Industry vertical","Shipper","Consignee","Origin","Destination","Branch","ERP Sales Person","Job owner","Evidence","Confidence"],
-       [[r.get("shipment_key"),r.get("shipment_date"),r.get("company"),r.get("report_type"),industry]+[r.get(k) for k in ["shipper","consignee","origin","destination","branch","salesperson","job_owner","evidence","confidence"]] for r in records]),
-      ("Applied filters",["Filter","Value"],[[k,v] for k,v in {"industry":industry,"company":company,"department":lob,"role":role,"origin":origin,"destination":destination,"shipper":shipper,"consignee":consignee,"branch":branch,"start":start,"end":end}.items() if v])
+        ("Calculation",["Metric","Value"],[
+            ["Industry verticals represented",len({r.get("industry") for r in contributor_rows})],
+            ["Contributing organisations",len(contributor_rows)],
+            ["Shipment rows",len(records)],
+            ["Distinct shipment keys",len(shipment_keys)],
+            ["Scope","All industries and all companies/departments authorised for the signed-in user"],
+            ["Attribution","Export shipments use shipper; import shipments use consignee"],
+            ["Method","Saved, unambiguous industry classifications matched by normalized counterparty name"]
+        ]),
+        ("Top 10 Contributors",contributor_headers,[contributor_values(r) for r in top_rows]),
+        ("Complete Contributor List",contributor_headers,[contributor_values(r) for r in contributor_rows]),
+        ("Shipment records",shipment_headers,[shipment_values(r) for r in records]),
+        ("Applied filters",["Filter","Value"],[
+            ["Industry","All"],
+            ["Company","All authorised companies"],
+            ["Department","All authorised departments"],
+            ["Date range","All available shipment dates"],
+            ["Counterparty role","Default attribution (export: shipper; import: consignee)"]
+        ])
     ])
     return StreamingResponse(BytesIO(output),media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-       headers={"Content-Disposition":"attachment; filename=ai-insights-industry-contributor-records.xlsx","Cache-Control":"no-store"})
+        headers={"Content-Disposition":"attachment; filename=ai-insights-all-industry-contributors.xlsx",
+                 "Cache-Control":"no-store"})
 
 @app.get("/api/classifications/industry-status")
 def classification_status_api(user=Depends(current_user)):
