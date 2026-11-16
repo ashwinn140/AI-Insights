@@ -207,7 +207,7 @@ def scoped_engine():
     url=URL.create("postgresql+psycopg2", username=os.environ["SHIPMENT_DB_USER"],
         password=os.environ["SHIPMENT_DB_PASSWORD"],host=os.environ["SHIPMENT_DB_HOST"],
         port=int(os.environ["SHIPMENT_DB_PORT"]),database=os.environ["SHIPMENT_DB_NAME"])
-    return create_engine(url,pool_pre_ping=True,pool_size=2,max_overflow=2,pool_timeout=5,
+    return create_engine(url,pool_pre_ping=True,pool_size=1,max_overflow=0,pool_timeout=30,
         connect_args={"connect_timeout":5,"options":"-c default_transaction_read_only=on -c statement_timeout=10000"})
 
 def close_scoped_engine():
