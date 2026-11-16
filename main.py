@@ -324,15 +324,80 @@ def _saved_classification_export_rows():
 @app.get("/api/classifications/export")
 @app.get("/api/admin/classifications/export")
 def classification_xlsx_export(user=Depends(current_user)):
-    rows=_saved_classification_export_rows()
-    output=workbook_bytes([("Classifications",
-        ["company_name","industry","confidence","source","country"],
-        [[r["company_name"],r["industry"],r["confidence"],r["source"],r.get("country","")] for r in rows])])
+    """Export the complete classification and source datasets on demand."""
+    saved=_saved_classification_export_rows()
+    saved_map={str(r["company_name"]).strip().casefold():dict(r) for r in saved}
+    research=auth.research_entities_export_rows(limit=50000)
+    pending=auth.pending_classification_names(limit=50000)
+    companies,lobs=allowed_scope(user,None,None)
+    engine=scoped_engine()
+    try:
+        with engine.connect() as conn:
+            shipments=[dict(r) for r in conn.execute(text("""
+                SELECT key AS shipment_key,shipment_date,company,report_type,
+                       shipper,consignee,origin,destination,branch,salesperson,job_owner,
+                       carrier,teus,gross_wt
+                FROM ai_insights_source.current_shipments
+                WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+                ORDER BY shipment_date DESC NULLS LAST,key
+            """),{"companies":companies,"lobs":lobs}).mappings()]
+            parties=[dict(r) for r in conn.execute(text("""
+                SELECT party AS company_name,role,COUNT(*) AS shipment_rows,
+                       COUNT(DISTINCT shipment_key) AS distinct_shipments
+                FROM (
+                    SELECT NULLIF(BTRIM(shipper),'') AS party,'Shipper' AS role,key AS shipment_key
+                    FROM ai_insights_source.current_shipments
+                    WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+                      AND NULLIF(BTRIM(shipper),'') IS NOT NULL
+                    UNION ALL
+                    SELECT NULLIF(BTRIM(consignee),'') AS party,'Consignee' AS role,key AS shipment_key
+                    FROM ai_insights_source.current_shipments
+                    WHERE company=ANY(:companies) AND report_type=ANY(:lobs)
+                      AND NULLIF(BTRIM(consignee),'') IS NOT NULL
+                ) p GROUP BY party,role ORDER BY party,role
+            """),{"companies":companies,"lobs":lobs}).mappings()]
+    except Exception as exc:
+        logger.warning("Complete classification export source unavailable (%s)",type(exc).__name__)
+        raise HTTPException(503,"The authorised shipment source is not ready for the complete Excel export.")
+    organisations={}
+    for row in parties:
+        name=(row.get("company_name") or "").strip()
+        if not name: continue
+        key=name.casefold()
+        item=organisations.setdefault(key,{"name":name,"roles":set(),"shipment_rows":0,"distinct_shipments":0})
+        item["roles"].add(row["role"])
+        item["shipment_rows"]+=int(row.get("shipment_rows") or 0)
+        item["distinct_shipments"]=max(item["distinct_shipments"],int(row.get("distinct_shipments") or 0))
+    for row in pending+saved:
+        name=(row.get("company_name") or "").strip()
+        if name:
+            organisations.setdefault(name.casefold(),{"name":name,"roles":set(),"shipment_rows":0,"distinct_shipments":0})
+    register=[]
+    for key,item in sorted(organisations.items(),key=lambda pair:pair[1]["name"].casefold()):
+        decision=saved_map.get(key,{})
+        register.append([item["name"],decision.get("country") or "",decision.get("industry") or "",
+            decision.get("confidence") or "",decision.get("source") or "",", ".join(sorted(item["roles"])),
+            item["shipment_rows"],item["distinct_shipments"],
+            "Classified" if decision.get("industry") else "Pending classification"])
+    verticals={}
+    for row in register:
+        vertical=row[2] or "Unclassified"
+        verticals[vertical]=verticals.get(vertical,0)+1
+    sheets=[
+      ("Classification Register",["Organisation","Country","Industry vertical","Confidence","Evidence/source","Shipment roles","Shipment rows","Distinct shipments","Status"],register),
+      ("Industry Summary",["Industry vertical","Organisations"],[[k,v] for k,v in sorted(verticals.items())]),
+      ("Organisation Contributions",["Organisation","Industry vertical","Role","Shipment rows","Distinct shipments"],[
+        [r.get("company_name"),saved_map.get((r.get("company_name") or "").casefold(),{}).get("industry",""),
+         r.get("role"),r.get("shipment_rows"),r.get("distinct_shipments")] for r in parties]),
+      ("Shipment Records",["Shipment key","Shipment date","Company","Department","Shipper","Consignee","Origin","Destination","Branch","ERP Sales Person","Job owner","Carrier","TEUs","Gross weight"],[
+        [r.get(k) for k in ["shipment_key","shipment_date","company","report_type","shipper","consignee","origin","destination","branch","salesperson","job_owner","carrier","teus","gross_wt"]] for r in shipments]),
+      ("Research Dataset",["Entity key","Original name","Normalized name","Canonical entity","Parent group","Alias group","Country","Industry","Sub-industry","Activity","Activity type","Rationale","Evidence URL","Evidence type","Confidence","Verification status","Research date","Appearances","Shipper appearances","Consignee appearances","NGL appearances","NCS appearances","Review notes","Provisional industry","Unresolved reason","Record origin"],[
+        [r.get(k) for k in ["entity_key","original_name","normalized_name","canonical_entity","parent_group","alias_group","country","industry","sub_industry","activity","activity_type","rationale","evidence_url","evidence_type","confidence","verification_status","research_date","appearances","shipper_appearances","consignee_appearances","ngl_appearances","ncs_appearances","review_notes","provisional_industry","unresolved_reason","record_origin"]] for r in research]),
+      ("Applied Scope",["Field","Value"],[["Company",", ".join(companies)],["Department",", ".join(lobs)]])]
+    output=workbook_bytes(sheets)
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition":"attachment; filename=ai-insights-classified-organizations.xlsx",
-                 "Cache-Control":"no-store"})
-
+        headers={"Content-Disposition":"attachment; filename=ai-insights-complete-classification-data.xlsx","Cache-Control":"no-store"})
 @app.get("/api/classifications/unique-verticals")
 @app.get("/api/admin/classifications/unique-verticals")
 def classification_unique_verticals(user=Depends(current_user)):
