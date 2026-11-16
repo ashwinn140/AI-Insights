@@ -1171,6 +1171,21 @@ async def admin_reset(uid: int, request: Request, user=Depends(require_admin)):
     except (ValueError,KeyError,TypeError) as exc:
         raise HTTPException(400,str(exc))
 
+@app.get("/api/classifications/search")
+def classification_search(q:str,user=Depends(current_user)):
+    term=(q or "").strip()
+    if len(term)<2:
+        return {"results":[]}
+    if len(term)>100:
+        raise HTTPException(400,"Search text must be 100 characters or fewer")
+    escaped=term.replace("\\","\\\\").replace("%","\\%").replace("_","\\_")
+    with auth.connection() as db:
+        rows=db.execute("""SELECT company_name,country,industry,confidence,source,updated_at
+            FROM classifications
+            WHERE company_name LIKE ? ESCAPE '\\'
+            ORDER BY company_name COLLATE NOCASE LIMIT 25""",("%"+escaped+"%",)).fetchall()
+    return {"results":[dict(row) for row in rows]}
+
 @app.get("/api/classifications/lookup")
 def classification_lookup(company_name:str,user=Depends(current_user)):
     name=(company_name or "").strip()
