@@ -716,6 +716,11 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
     )"""
     engine=scoped_engine()
     query_started=time.perf_counter()
+    def set_contributor_timeout(conn):
+        # Contributor aggregates can legitimately scan the full authorised
+        # shipment window. Keep the normal 10s limit for every other endpoint,
+        # but give these bounded, read-only queries up to 25s.
+        conn.execute(text("SET LOCAL statement_timeout = '25000'"))
     try:
         # Keep expensive contributor grouping separate from the simple shipment
         # summary. This avoids repeated DISTINCT aggregates over one materialized
@@ -736,12 +741,14 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
        ORDER BY shipment_rows DESC,organisation
        LIMIT :limit OFFSET :offset"""
         with engine.connect() as conn:
+            set_contributor_timeout(conn)
             rows=[dict(row) for row in conn.execute(text(grouped_sql),params).mappings()]
         total_sql=base_cte+""" SELECT COUNT(DISTINCT contributor) AS contributor_total,
               COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
               COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight
        FROM scoped"""
         with engine.connect() as conn:
+            set_contributor_timeout(conn)
             summary=dict(conn.execute(text(total_sql),params).mappings().one())
         contributor_total=int(summary.pop("contributor_total") or 0)
         shipment_record_total=int(summary.get("shipment_rows") or 0)
@@ -758,6 +765,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
                   ORDER BY shipment_date DESC NULLS LAST,key
                   LIMIT :record_limit OFFSET :record_offset"""
             with engine.connect() as conn:
+                set_contributor_timeout(conn)
                 records=[dict(row) for row in conn.execute(text(records_sql),params).mappings()]
             for row in records:
                 evidence=evidence_by_name.get(
