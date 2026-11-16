@@ -29,8 +29,8 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
         import re
 
         page = Path("app/classifications.html").read_text()
-        ids = set(re.findall(r'\\bid=["\\']([^"\\']+)["\\']', page))
-        refs = set(re.findall(r"\\$\\(['\\"]([^'\\"]+)['\\"]\\)", page))
+        ids = set(re.findall(r'id="([^"]+)"', page))
+        refs = set(re.findall(r"\\$\\('([^']+)'\\)", page))
         self.assertEqual(refs - ids, set(), "Every static DOM lookup must have a matching element")
         self.assertNotIn("$('search').onclick=load", page)
         self.assertNotIn("$('q').onkeydown", page)
