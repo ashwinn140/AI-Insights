@@ -143,10 +143,6 @@ function renderContributorRows(rows){
   const td=document.createElement('td');if(r.evidence&&(r.evidence.startsWith('http://')||r.evidence.startsWith('https://'))){const link=document.createElement('a');link.href=r.evidence;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Open source';td.append(link)}else td.textContent=r.evidence||'No evidence saved';tr.append(td);body.append(tr);
  }
 }
-function renderShipmentRows(rows){
- const body=$('contributor-records');body.replaceChildren();
- for(const r of rows){const tr=document.createElement('tr');for(const v of [r.shipment_key,r.shipment_date,r.company,r.report_type,r.shipper,r.consignee,r.origin,r.destination,r.branch,r.salesperson,r.job_owner,r.evidence]){const td=document.createElement('td');td.textContent=v??'—';tr.append(td)}body.append(tr)}
-}
 async function loadContributorPage(){
  const summary=$('contributor-summary'),note=$('contributor-note');
  if(!selectedTrendIndustry){summary.textContent='Select an industry above to inspect its contributors.';summary.classList.remove('is-loading');renderContributorRows([]);$('contributor-chart').replaceChildren();return}
@@ -327,8 +323,26 @@ uploadForm.addEventListener('submit',async e=>{
   catch(refreshError){uploadMessage('The server confirmed '+result.imported.toLocaleString()+' saved classifications, but the on-screen refresh failed: '+(refreshError.message||'refresh error')+'. Reload the page to verify the register.','warning')}
  }catch(err){uploadMessage(err.message||'Upload failed before confirmation. Please check the file and try again.','error')}
  finally{uploadButton.disabled=false;uploadButton.textContent=originalLabel}
-});$('search').onclick=load;$('q').onkeydown=e=>{if(e.key==='Enter')load()};$('page-refresh').onclick=async()=>{if(refreshInProgress)return;const b=$('page-refresh');b.disabled=true;b.textContent='↻ Refreshing…';try{await Promise.all([load(),industryStatus(),refreshIndustryViews()]);$('data-refreshed').textContent='Last refreshed '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}catch(e){$('data-refreshed').textContent='Refresh incomplete: '+e.message}finally{b.disabled=false;b.textContent='↻ Refresh data'}};initContributorIndustrySelector();
-api('/auth/me').then(u=>{if(u.role==='admin'){$('adminlink').hidden=false}industryStatus();trendInit()}).catch(()=>{$('error').textContent='Please sign in first'});
+});
+const legacySearchButton=$('search');
+if(legacySearchButton)legacySearchButton.addEventListener('click',()=>{});
+const legacySearchInput=$('q');
+if(legacySearchInput)legacySearchInput.addEventListener('keydown',e=>{if(e.key==='Enter'){}});
+const pageRefreshButton=$('page-refresh');
+if(pageRefreshButton)pageRefreshButton.onclick=async()=>{
+ if(refreshInProgress)return;
+ pageRefreshButton.disabled=true;pageRefreshButton.textContent='↻ Refreshing…';
+ try{
+  await Promise.all([industryStatus(),refreshIndustryViews()]);
+  $('data-refreshed').textContent='Last refreshed '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+ }catch(e){
+  $('data-refreshed').textContent='Refresh incomplete: '+(e.message||'unknown error');
+ }finally{
+  pageRefreshButton.disabled=false;pageRefreshButton.textContent='↻ Refresh data';
+ }
+};
+initContributorIndustrySelector();
+api('/auth/me').then(u=>{if(u.role==='admin'){$('adminlink').hidden=false}industryStatus();trendInit()}).catch(e=>{$('error').textContent='Please sign in first: '+e.message});
 </script>
 <script>
 /* Show a real sign-in screen when the browser has no valid session. */
