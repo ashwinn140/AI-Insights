@@ -706,7 +706,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
        FROM jsonb_to_recordset(CAST(:mapping AS jsonb))
          AS x(company_name text,industry text)
        GROUP BY 1
-    ), scoped AS (
+    ), scoped AS MATERIALIZED (
        SELECT s.key,s.shipment_date,s.company,s.report_type,s.teus,s.gross_wt,
               s.salesperson,s.job_owner,s.shipper,s.consignee,s.origin,
               s.destination,s.branch,
@@ -729,7 +729,7 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
         # Materialize the authorised shipment scope once and derive the ranked
         # contributor page plus summary in one statement. Previously the same
         # source/mapping join ran twice on separate connections, doubling scans.
-        grouped_sql=base_cte.replace("), scoped AS (", "), scoped AS MATERIALIZED (")+""",
+        grouped_sql=base_cte+""",
         contributor_groups AS MATERIALIZED (
           SELECT contributor AS organisation,
                  CASE WHEN :role='shipper' THEN 'Shipper'
