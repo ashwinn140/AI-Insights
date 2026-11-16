@@ -4,6 +4,7 @@ No customer data is returned until authentication and authorization are implemen
 """
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, UploadFile, File
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
