@@ -298,4 +298,32 @@ uploadForm.addEventListener('submit',async e=>{
  }catch(err){uploadMessage(err.message||'Upload failed before confirmation. Please check the file and try again.','error')}
  finally{uploadButton.disabled=false;uploadButton.textContent=originalLabel}
 });$('search').onclick=load;$('q').onkeydown=e=>{if(e.key==='Enter')load()};$('page-refresh').onclick=async()=>{if(refreshInProgress)return;const b=$('page-refresh');b.disabled=true;b.textContent='↻ Refreshing…';try{await Promise.all([load(),industryStatus(),refreshIndustryViews()]);$('data-refreshed').textContent='Last refreshed '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}catch(e){$('data-refreshed').textContent='Refresh incomplete: '+e.message}finally{b.disabled=false;b.textContent='↻ Refresh data'}};api('/auth/me').then(u=>{if(u.role==='admin'){$('adminlink').hidden=false}industryStatus();trendInit()}).catch(()=>{$('error').textContent='Please sign in first'});
-</script></html>
+</script>
+<script>
+/* Show a real sign-in screen when the browser has no valid session. */
+(()=>{
+ async function showSignInIfNeeded(){
+  try{const check=await fetch('/auth/me',{credentials:'same-origin',cache:'no-store'});if(check.ok)return;}catch(_){ }
+  if(document.getElementById('ai-login-overlay'))return;
+  const overlay=document.createElement('div');overlay.id='ai-login-overlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:99999;display:grid;place-items:center;padding:20px;background:rgba(3,9,19,.94);backdrop-filter:blur(8px)';
+  overlay.innerHTML='<section role="dialog" aria-modal="true" aria-labelledby="ai-login-title" style="width:min(420px,100%);padding:28px;border:1px solid #385777;border-radius:16px;background:#111d30;color:#eef4ff;box-shadow:0 24px 80px #0009;font:14px system-ui,sans-serif"><div style="font-size:12px;letter-spacing:2px;color:#91baff;margin-bottom:8px">AI INSIGHTS</div><h2 id="ai-login-title" style="margin:0 0 8px;font-size:24px">Sign in to continue</h2><p style="color:#b5c8e4;line-height:1.5">Use your existing AI Insights account to access classification and shipment intelligence.</p><form id="ai-login-form"><label for="ai-login-email" style="display:block;margin:18px 0 6px">Email</label><input id="ai-login-email" name="email" type="email" autocomplete="username" required style="box-sizing:border-box;width:100%;padding:12px;border:1px solid #49617f;border-radius:8px;background:#0b1525;color:#fff"><label for="ai-login-password" style="display:block;margin:14px 0 6px">Password</label><input id="ai-login-password" name="password" type="password" autocomplete="current-password" required style="box-sizing:border-box;width:100%;padding:12px;border:1px solid #49617f;border-radius:8px;background:#0b1525;color:#fff"><p id="ai-login-error" role="alert" style="min-height:20px;color:#ffaaaa"></p><button id="ai-login-submit" type="submit" style="width:100%;padding:12px;border:0;border-radius:8px;background:#3974e8;color:white;font-weight:600;cursor:pointer">Sign in</button></form></section>';
+  document.body.append(overlay);
+  const form=overlay.querySelector('#ai-login-form'),button=overlay.querySelector('#ai-login-submit'),error=overlay.querySelector('#ai-login-error');
+  overlay.querySelector('#ai-login-email').focus();
+  form.addEventListener('submit',async event=>{
+   event.preventDefault();button.disabled=true;button.textContent='Signing in…';error.textContent='';
+   const email=form.elements.email.value.trim(),password=form.elements.password.value;
+   try{
+    const response=await fetch('/auth/login',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({email,password})});
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.detail||'Sign-in failed. Check your email and password.');
+    const next=new URLSearchParams(location.search).get('next');
+    location.replace(next&&next.startsWith('/')&&!next.startsWith('//')?next:'/');
+   }catch(err){error.textContent=err.message||'Unable to sign in. Please try again.';button.disabled=false;button.textContent='Sign in';}
+  });
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showSignInIfNeeded,{once:true});else showSignInIfNeeded();
+})();
+</script>
+</html>
