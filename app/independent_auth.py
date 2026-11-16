@@ -244,6 +244,17 @@ def audit_events(limit=100):
         return [dict(r) for r in db.execute(
             "SELECT event,user_id,created_at FROM audit ORDER BY id DESC LIMIT ?",(min(limit,200),))]
 
+def research_entities_export_rows(limit=50000):
+    """Return all available research master fields for the complete workbook."""
+    with connection() as db:
+        rows=db.execute("""SELECT entity_key,original_name,normalized_name,canonical_entity,
+            parent_group,alias_group,country,industry,sub_industry,activity,activity_type,
+            rationale,evidence_url,evidence_type,confidence,verification_status,research_date,
+            appearances,shipper_appearances,consignee_appearances,ngl_appearances,
+            ncs_appearances,review_notes,provisional_industry,unresolved_reason,record_origin
+            FROM research_entities ORDER BY original_name COLLATE NOCASE LIMIT ?""",
+            (min(max(int(limit),1),50000),)).fetchall()
+        return [dict(row) for row in rows]
 def classification_list(term="",limit=10,offset=0):
     term=(term or "").strip()
     with connection() as db:
