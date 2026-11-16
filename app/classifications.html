@@ -35,8 +35,19 @@ function applyVerticalCrossFilter(kind,item){
   replacePickerSelection('destination',item.destination&&item.destination!=='Unknown'?[item.destination]:[]);
  }else if(kind==='counterparty'){
   const role=$('trend-role').value, lob=selectedValues('lob');
-  const target=role==='shipper'?'shipper':role==='consignee'?'consignee':
-    lob.length===1&&['AI','OI'].includes(lob[0])?'consignee':'shipper';
+  let target='';
+  if(role==='shipper')target='consignee';
+  else if(role==='consignee')target='shipper';
+  else{
+   const exportsOnly=lob.length>0&&lob.every(x=>['AE','OE'].includes(x));
+   const importsOnly=lob.length>0&&lob.every(x=>['AI','OI'].includes(x));
+   if(exportsOnly)target='consignee';
+   else if(importsOnly)target='shipper';
+   else{
+    $('vertical-note').textContent='This counterparty appears across export and import rows. Select only export or only import departments before applying it as a single-side filter.';
+    return;
+   }
+  }
   replacePickerSelection(target,[item.name]);
  }else if(kind==='branch'){replacePickerSelection('branch',[item.branch]);}
  refreshIndustryViews();
@@ -241,7 +252,7 @@ async function shipmentTrend(){
   tr.style.cursor='pointer';tr.onclick=()=>{selectedTrendIndustry=item.name;updateContributorRefreshControl();drawContribution();drawTrend();verticalDetail();contributorRecords()};table.append(tr)}
  }catch(e){chart.replaceChildren();table.replaceChildren();summary.textContent='Industry insights unavailable: '+e.message}
 }
-let refreshInProgress=false;async function refreshIndustryViews(){if(refreshInProgress)return;refreshInProgress=true;const button=$('page-refresh');if(button){button.disabled=true;button.textContent='↻ Refreshing…'}try{await contributorFilterOptions();await shipmentTrend();if(selectedTrendIndustry){await verticalDetail();await contributorRecords()}if(salespersonLoaded)await salespersonIndustry();const now=new Date();$('data-refreshed').textContent='Last refreshed '+now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});}finally{refreshInProgress=false;if(button){button.disabled=false;button.textContent='↻ Refresh data'}}}
+let refreshInProgress=false,refreshPromise=null;function refreshIndustryViews(){if(refreshPromise)return refreshPromise;refreshInProgress=true;const button=$('page-refresh');if(button){button.disabled=true;button.textContent='↻ Refreshing…'}refreshPromise=(async()=>{await contributorFilterOptions();await shipmentTrend();if(selectedTrendIndustry){await verticalDetail();await contributorRecords()}if(salespersonLoaded)await salespersonIndustry();const now=new Date();$('data-refreshed').textContent='Last refreshed '+now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});})().finally(()=>{refreshInProgress=false;refreshPromise=null;if(button){button.disabled=false;button.textContent='↻ Refresh data'}});return refreshPromise}
 async function trendInit(){try{
  const u=await api('/auth/me');
  renderCheckPicker('company',u.companies||[],u.companies||[]);renderCheckPicker('lob',u.lobs||[],u.lobs||[]);
@@ -300,13 +311,15 @@ async function prepareManualClassification(nameOverride){
   }else{$('company-match-status').textContent='No saved classification found for this exact name. You can create a new organisation record.'}
  }catch(e){$('company-match-status').textContent='Lookup unavailable: '+e.message}
 }
-let registerSearchTimer;
+let registerSearchTimer,registerSearchSequence=0;
 async function searchClassificationRegister(){
- const q=$('register-search').value.trim(),host=$('register-results');
+ const q=$('register-search').value.trim(),host=$('register-results'),sequence=++registerSearchSequence;
  if(q.length<2){host.textContent='Enter at least 2 characters to search.';return}
  host.textContent='Searching saved organisations…';
  try{
-  const data=await api('/api/classifications/search?q='+encodeURIComponent(q));host.replaceChildren();
+  const data=await api('/api/classifications/search?q='+encodeURIComponent(q));
+  if(sequence!==registerSearchSequence||q!==$('register-search').value.trim())return;
+  host.replaceChildren();
   if(!data.results.length){host.textContent='No saved organisations match this search.';return}
   const table=document.createElement('table'),head=document.createElement('tr');
   for(const label of ['Organisation','Country','Industry','Confidence','Evidence','Action']){const th=document.createElement('th');th.textContent=label;head.append(th)}
@@ -317,11 +330,11 @@ async function searchClassificationRegister(){
    const td=document.createElement('td'),button=document.createElement('button');button.type='button';button.textContent='View / edit';button.onclick=()=>{prepareManualClassification(row.company_name);location.hash='editor'};td.append(button);tr.append(td);body.append(tr)}
   table.append(body);host.append(table);
   const note=document.createElement('p');note.className='muted';note.textContent='Showing '+data.results.length+' matching organisations (maximum 25).';host.append(note);
- }catch(e){host.textContent='Register search unavailable: '+e.message}
+ }catch(e){if(sequence===registerSearchSequence)host.textContent='Register search unavailable: '+e.message}
 }
-$('register-search').addEventListener('input',()=>{clearTimeout(registerSearchTimer);registerSearchTimer=setTimeout(searchClassificationRegister,250)});
+$('register-search').addEventListener('input',()=>{registerSearchSequence++;clearTimeout(registerSearchTimer);registerSearchTimer=setTimeout(searchClassificationRegister,250)});
 $('classification-company').addEventListener('change',()=>prepareManualClassification());
-$('form').onsubmit=async e=>{e.preventDefault();const f=e.target,d=new FormData(f),button=f.querySelector('button');button.disabled=true;button.textContent='Saving…';$('save-status').textContent='Saving classification…';try{await api('/api/classifications/save','POST',{company_name:d.get('company_name'),country:d.get('country'),industry:d.get('industry'),confidence:d.get('confidence'),source:d.get('source')});$('save-status').textContent='Classification saved. Refreshing status and insights…';await Promise.all([industryStatus(),refreshIndustryViews()]);$('save-status').textContent='Saved successfully. Industry status and shipment insights are refreshed.';await searchClassificationRegister()}catch(e){$('save-status').textContent='Save/refresh issue: '+e.message;$('error').textContent=e.message}finally{button.disabled=false;button.textContent='Save classification'}};const uploadForm=$('uploadform'),uploadInput=$('uploadfile'),uploadButton=$('uploadbutton'),uploadStatus=$('uploadstatus');
+$('form').onsubmit=async e=>{e.preventDefault();const f=e.target,d=new FormData(f),button=f.querySelector('button');button.disabled=true;button.textContent='Saving…';$('save-status').textContent='Saving classification…';let saved=false;try{try{await api('/api/classifications/save','POST',{company_name:d.get('company_name'),country:d.get('country'),industry:d.get('industry'),confidence:d.get('confidence'),source:d.get('source')});saved=true;$('save-status').textContent='Classification saved. Refreshing status and insights…';}catch(e){$('save-status').textContent='Save failed: '+e.message;$('error').textContent=e.message}if(saved){try{await Promise.all([industryStatus(),refreshIndustryViews()]);$('save-status').textContent='Saved successfully. Industry status and shipment insights are refreshed.';await searchClassificationRegister()}catch(e){$('save-status').textContent='Classification was saved, but dashboard refresh failed: '+e.message+'. Reload the page to verify the latest data.';$('error').textContent=e.message}}}finally{button.disabled=false;button.textContent='Save classification'}};const uploadForm=$('uploadform'),uploadInput=$('uploadfile'),uploadButton=$('uploadbutton'),uploadStatus=$('uploadstatus');
 const uploadMessage=(message,state='info')=>{uploadStatus.textContent=message;uploadStatus.dataset.state=state;uploadStatus.setAttribute('aria-live','polite')};
 uploadInput.addEventListener('change',()=>{const file=uploadInput.files&&uploadInput.files[0];uploadMessage(file?'Selected '+file.name+' ('+(file.size/1024/1024).toFixed(2)+' MB). Ready to validate.':'No file selected.',file?'ready':'info')});
 uploadForm.addEventListener('submit',async e=>{
