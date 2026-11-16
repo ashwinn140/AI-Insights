@@ -35,6 +35,15 @@ class ClassificationReliabilityTests(unittest.TestCase):
         self.assertIn("sequence!==registerSearchSequence", page)
         self.assertIn("q!==$('register-search').value.trim()", page)
 
+
+    def test_counterparty_crossfilter_uses_the_opposite_party_field(self):
+        page = Path("app/classifications.html").read_text()
+        self.assertIn("if(role==='shipper')target='consignee'", page)
+        self.assertIn("else if(role==='consignee')target='shipper'", page)
+        self.assertIn("exportsOnly=lob.length>0&&lob.every", page)
+        self.assertIn("importsOnly=lob.length>0&&lob.every", page)
+        self.assertIn("Select only export or only import departments", page)
+
     def test_save_success_is_not_misreported_as_save_failure_on_refresh_error(self):
         page = Path("app/classifications.html").read_text()
         self.assertIn("Classification was saved, but dashboard refresh failed:", page)
