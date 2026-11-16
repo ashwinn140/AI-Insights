@@ -96,7 +96,9 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
 
         self.assertEqual(response.media_type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         self.assertIn("ai-insights-all-industry-contributors.xlsx", response.headers["content-disposition"])
-        connection.execute.assert_called_once()
+        self.assertEqual(connection.execute.call_count, 2)  # SET LOCAL timeout + export query
+        timeout_sql = str(connection.execute.call_args_list[0].args[0])
+        self.assertIn("SET LOCAL statement_timeout", timeout_sql)
         sheets = workbook.call_args.args[0]
         self.assertEqual([sheet[0] for sheet in sheets], [
             "Calculation", "Top 10 Contributors", "Complete Contributor List",
