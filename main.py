@@ -140,6 +140,10 @@ def current_user(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 def index():
+    return Path(__file__).parent.joinpath("app/classifications.html").read_text()
+
+@app.get("/operations", response_class=HTMLResponse)
+def operations_page(user=Depends(current_user)):
     return Path(__file__).parent.joinpath("app/industry_explorer.html").read_text()
 
 @app.post("/auth/login")
