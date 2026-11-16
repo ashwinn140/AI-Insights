@@ -4,7 +4,7 @@ from html import escape
 from unittest.mock import MagicMock, patch
 
 import main
-from app.industry_master import INDUSTRY_VERTICALS
+from app.industry_master import INDUSTRY_PROMPT, INDUSTRY_VERTICALS
 
 
 class IndustrySelectorAndExportTests(unittest.TestCase):
@@ -16,6 +16,12 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
             option = f'value="{escape(industry, quote=True)}">{escape(industry)}</option>'
             self.assertEqual(page.count(option), 2, industry)
         self.assertIn('value="Unclassified">Unclassified</option>', page)
+
+    def test_excel_prompt_and_validation_share_the_canonical_industry_master(self):
+        for industry in INDUSTRY_VERTICALS:
+            self.assertIn(industry, INDUSTRY_PROMPT)
+        self.assertNotIn('15-value master', INDUSTRY_PROMPT)
+        self.assertNotIn('exact 15 labels', INDUSTRY_PROMPT)
 
     def test_contributor_export_needs_no_industry_selection_or_refresh(self):
         record = {
