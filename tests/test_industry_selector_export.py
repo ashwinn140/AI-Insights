@@ -23,6 +23,22 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
         self.assertNotIn('15-value master', INDUSTRY_PROMPT)
         self.assertNotIn('exact 15 labels', INDUSTRY_PROMPT)
 
+
+    def test_classification_page_has_no_stale_dom_bindings_that_abort_startup(self):
+        from pathlib import Path
+        import re
+
+        page = Path("app/classifications.html").read_text()
+        ids = set(re.findall(r'\\bid=["\\']([^"\\']+)["\\']', page))
+        refs = set(re.findall(r"\\$\\(['\\"]([^'\\"]+)['\\"]\\)", page))
+        self.assertEqual(refs - ids, set(), "Every static DOM lookup must have a matching element")
+        self.assertNotIn("$('search').onclick=load", page)
+        self.assertNotIn("$('q').onkeydown", page)
+        self.assertNotIn("Promise.all([load(),industryStatus(),refreshIndustryViews()])", page)
+        self.assertNotIn("function renderShipmentRows(rows)", page)
+        self.assertLess(page.index("initContributorIndustrySelector();"),
+                        page.index("api('/auth/me').then"))
+
     def test_contributor_export_needs_no_industry_selection_or_refresh(self):
         record = {
             "shipment_key": "JOB-001",
