@@ -1,5 +1,6 @@
 """Regression tests for server-rendered industry selectors and direct all-industry export."""
 import unittest
+from html import escape
 from unittest.mock import MagicMock, patch
 
 import main
@@ -12,7 +13,7 @@ class IndustrySelectorAndExportTests(unittest.TestCase):
         self.assertNotIn("INDUSTRY_OPTIONS", page)
         self.assertNotIn("CONTRIBUTOR_INDUSTRY_OPTIONS", page)
         for industry in INDUSTRY_VERTICALS:
-            option = f'value="{industry}">{industry}</option>'
+            option = f'value="{escape(industry, quote=True)}">{escape(industry)}</option>'
             self.assertEqual(page.count(option), 2, industry)
         self.assertIn('value="Unclassified">Unclassified</option>', page)
 
