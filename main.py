@@ -577,7 +577,12 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     import json
     params["classifications"]=json.dumps(classifications,separators=(",",":"))
     counterparty=("CASE WHEN s.report_type IN (\'AE\',\'OE\') THEN s.shipper ELSE s.consignee END" if role=="primary" else ("s.shipper" if role=="shipper" else "s.consignee"))
-    sql=f"""WITH industry_map AS (
+    sql=f"""WITH scoped_shipments AS MATERIALIZED (
+       SELECT shipment_date,report_type,
+              {counterparty} AS industry_party
+       FROM ai_insights_source.current_shipments s
+       WHERE {where} AND s.shipment_date IS NOT NULL
+    ), industry_map AS (
        SELECT LOWER(BTRIM(company_name)) AS normalized_name,
               CASE WHEN COUNT(DISTINCT industry)=1 THEN MIN(industry) ELSE NULL END AS industry
        FROM jsonb_to_recordset(CAST(:classifications AS jsonb))
@@ -587,9 +592,8 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
        SELECT DATE_TRUNC('month',s.shipment_date)::date AS month,
               COALESCE(a.industry,'Unclassified') AS industry,
               COUNT(*) AS shipments
-       FROM ai_insights_source.current_shipments s
-       LEFT JOIN industry_map a ON LOWER(BTRIM({counterparty}))=a.normalized_name
-       WHERE {where} AND s.shipment_date IS NOT NULL
+       FROM scoped_shipments s
+       LEFT JOIN industry_map a ON LOWER(BTRIM(s.industry_party))=a.normalized_name
        GROUP BY 1,2
     )
     SELECT TO_CHAR(month,'YYYY-MM') AS month,industry,shipments
@@ -597,6 +601,9 @@ def classification_shipment_trend(company: str|None=None,lob: str|None=None,
     engine=scoped_engine()
     try:
         with engine.connect() as conn:
+            # This endpoint is a background insight query; bound its DB work without
+            # changing the app-wide statement timeout used by interactive endpoints.
+            conn.execute(text("SET LOCAL statement_timeout = '20000'"))
             rows=[dict(r) for r in conn.execute(text(sql),params).mappings()]
     finally: pass
     return {"role":role,"rows":rows,"classification_basis":"Saved classifications; exact normalized counterparty match; shipment rows, not unique jobs.",
