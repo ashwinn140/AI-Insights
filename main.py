@@ -641,6 +641,9 @@ def vertical_performance(industry: str,company: str|None=None,lob: str|None=None
     engine=scoped_engine()
     try:
         with engine.connect() as conn:
+            # One selected-vertical drilldown runs six read-only aggregates.
+            # Bound the transaction without changing the global DB timeout.
+            conn.execute(text("SET LOCAL statement_timeout = '20000'"))
             result={k:[dict(r) for r in conn.execute(text(base+" "+q),params).mappings()] for k,q in queries.items()}
     finally: pass
     return {"industry":industry,"role":role,"data":result,
@@ -849,13 +852,20 @@ def classification_contributors_export(user=Depends(current_user)):
     JOIN ranked r ON r.industry=s.industry AND r.organisation=s.contributor
     ORDER BY s.industry,r.industry_rank,s.shipment_date DESC NULLS LAST,s.key"""
     engine=scoped_engine()
+    query_started=time.perf_counter()
     try:
         with engine.connect() as conn:
+            # This full-workbook query is intentionally isolated from the
+            # application's normal 10s limit; keep a hard ceiling and log it.
+            conn.execute(text("SET LOCAL statement_timeout = '25000'"))
             result=conn.execute(text(sql),params).mappings()
             records=[dict(row) for row in result]
     except Exception as exc:
-        logger.error("Contributor workbook export failed; error_type=%s",type(exc).__name__)
+        logger.error("Contributor workbook export failed; elapsed_ms=%d error_type=%s",
+                     int((time.perf_counter()-query_started)*1000),type(exc).__name__)
         raise
+    logger.info("Contributor workbook export query completed; rows=%d elapsed_ms=%d",
+                len(records),int((time.perf_counter()-query_started)*1000))
 
     contributor_rows=[]
     top_rows=[]
