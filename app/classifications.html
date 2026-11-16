@@ -18,6 +18,28 @@ let savedTheme='dark';try{savedTheme=localStorage.getItem('ai-insights-theme')||
 applyTheme(savedTheme);
 themeToggle?.addEventListener('click',()=>{const next=document.body.classList.contains('light-theme')?'dark':'light';applyTheme(next);try{localStorage.setItem('ai-insights-theme',next)}catch(_){}});
 
+function replacePickerSelection(id,values){
+ const host=$('trend-'+id);if(!host)return;
+ const boxes=[...host.querySelectorAll('input[type="checkbox"]')];
+ if(!boxes.length)return;
+ for(const box of boxes)box.checked=values.includes(box.value);
+ const summary=host.querySelector('.ai-check-summary');
+ if(summary){const selected=boxes.filter(box=>box.checked);summary.textContent=selected.length===boxes.length?'All ('+boxes.length+')':selected.length?selected.length+' selected':'None selected'}
+}
+function applyVerticalCrossFilter(kind,item){
+ if(kind==='department'){
+  replacePickerSelection('company',[item.company]);replacePickerSelection('lob',[item.report_type]);
+ }else if(kind==='lane'){
+  replacePickerSelection('origin',item.origin&&item.origin!=='Unknown'?[item.origin]:[]);
+  replacePickerSelection('destination',item.destination&&item.destination!=='Unknown'?[item.destination]:[]);
+ }else if(kind==='counterparty'){
+  const role=$('trend-role').value, lob=selectedValues('lob');
+  const target=role==='shipper'?'shipper':role==='consignee'?'consignee':
+    lob.length===1&&['AI','OI'].includes(lob[0])?'consignee':'shipper';
+  replacePickerSelection(target,[item.name]);
+ }else if(kind==='branch'){replacePickerSelection('branch',[item.branch]);}
+ refreshIndustryViews();
+}
 async function verticalDetail(){
  const name=selectedTrendIndustry;if(!name)return;
  $('vertical-title').textContent=name+' — vertical performance';
@@ -38,8 +60,8 @@ async function verticalDetail(){
   topCounterparty?'Largest '+($('trend-role').value==='primary'?'opposite-party':($('trend-role').value==='shipper'?'consignee':'shipper'))+' relationship: '+topCounterparty.name+' ('+Number(topCounterparty.shipments).toLocaleString('en-IN')+' rows).':'No counterparty data available.'
  ];
  for(const message of observations){const p=document.createElement('p');p.textContent=message;insights.append(p)}
- const datasets=[['vertical-departments',d.departments,x=>x.company+' · '+x.report_type],['vertical-lanes',d.lanes,x=>x.origin+' → '+x.destination],['vertical-counterparties',d.counterparties,x=>x.name],['vertical-branches',d.branches,x=>x.branch]];
- for(const [id,rows,label] of datasets){const root=$(id);root.replaceChildren();if(!rows.length){root.textContent='No records';continue}const max=Math.max(1,...rows.map(x=>Number(x.shipments)));for(const x of rows){const row=document.createElement('div');row.className='ai-vertical-row';const heading=document.createElement('span');heading.textContent=label(x);const count=document.createElement('strong');count.textContent=Number(x.shipments).toLocaleString('en-IN');const track=document.createElement('div');track.className='ai-contribution-track';const bar=document.createElement('div');bar.style.width=(Number(x.shipments)/max*100)+'%';track.append(bar);row.append(heading,count,track);root.append(row)}}
+ const datasets=[['vertical-departments',d.departments,x=>x.company+' · '+x.report_type,'department'],['vertical-lanes',d.lanes,x=>x.origin+' → '+x.destination,'lane'],['vertical-counterparties',d.counterparties,x=>x.name,'counterparty'],['vertical-branches',d.branches,x=>x.branch,'branch']];
+ for(const [id,rows,label,kind] of datasets){const root=$(id);root.replaceChildren();if(!rows.length){root.textContent='No records';continue}const max=Math.max(1,...rows.map(x=>Number(x.shipments)));for(const x of rows){const row=document.createElement('button');row.type='button';row.className='ai-vertical-row ai-crossfilter-choice';row.title='Click to filter all industry visuals';row.setAttribute('aria-label','Filter all visuals by '+label(x));row.onclick=()=>applyVerticalCrossFilter(kind,x);const heading=document.createElement('span');heading.textContent=label(x);const count=document.createElement('strong');count.textContent=Number(x.shipments).toLocaleString('en-IN');const track=document.createElement('span');track.className='ai-contribution-track';const bar=document.createElement('span');bar.style.width=(Number(x.shipments)/max*100)+'%';track.append(bar);row.append(heading,count,track);root.append(row)}}
  }catch(e){$('vertical-note').textContent='Vertical drilldown unavailable: '+e.message}
 }
 function periodBounds(kind,now=new Date()){
