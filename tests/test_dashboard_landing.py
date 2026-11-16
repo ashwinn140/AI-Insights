@@ -8,7 +8,8 @@ class DashboardLandingTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text()
         self.assertIn('@app.get("/", response_class=HTMLResponse)', main)
-        self.assertIn('return Path(__file__).parent.joinpath("app/classifications.html").read_text()', main)
+        self.assertIn("def render_classification_page():", main)
+        self.assertIn("return render_classification_page()", main)
         self.assertIn('@app.get("/operations", response_class=HTMLResponse)', main)
 
     def test_operations_overview_remains_available_at_operations_route(self):
