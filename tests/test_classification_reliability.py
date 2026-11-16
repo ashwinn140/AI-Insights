@@ -52,10 +52,10 @@ class ClassificationReliabilityTests(unittest.TestCase):
 
     def test_refresh_status_reports_partial_failures_instead_of_false_success(self):
         page = Path("app/classifications.html").read_text()
-        self.assertIn("return false", page[page.index("async function contributorFilterOptions"):page.index("async function shipmentTrend")])
-        self.assertIn("return false", page[page.index("async function shipmentTrend"):page.index("async function verticalDetail")])
-        self.assertIn("return false", page[page.index("async function verticalDetail"):page.index("async function contributorRecords")])
-        self.assertIn("return false", page[page.index("async function salespersonIndustry"):page.index("$('sales-prev').onclick")])
+        self.assertIn("Filter options unavailable: '+e.message;return false", page)
+        self.assertIn("Industry insights unavailable: '+e.message;return false", page)
+        self.assertIn("Vertical drilldown unavailable: '+e.message;return false", page)
+        self.assertIn("Salesperson industry mix unavailable: '+e.message;return false", page)
         self.assertIn("if(ok===false)outcomes.push(label)", page)
         self.assertIn("Refresh incomplete · ", page)
         self.assertIn("return {ok:outcomes.length===0,failed:outcomes}", page)
