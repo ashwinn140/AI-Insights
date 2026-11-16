@@ -17,6 +17,8 @@ INDUSTRY_VERTICALS = (
     "Logistics & Supply Chain Services",
 )
 
+INDUSTRY_LIST_TEXT = "\n".join(f"{index}. {label}" for index, label in enumerate(INDUSTRY_VERTICALS, 1))
+
 INDUSTRY_PROMPT = """ROLE
 You are an independent industry research analyst. Classify the principal business activity of each named organisation. This prompt is provider-neutral and must work with any AI assistant or spreadsheet-capable tool.
 
@@ -26,27 +28,13 @@ WORKSHEET AND OUTPUT RULES
 - Preserve every company_name and country exactly as supplied.
 - Preserve all rows, row order and the five-column structure. Do not add, delete, merge, sort or rename rows or columns.
 - Update only industry, confidence and source.
-- Industry must be exactly one label from the 15-value master listed below.
+- Industry must be exactly one label from the approved industry master listed below.
 - For a defensible classification, set confidence to high, medium or low and include an evidence note and source URL where available.
 - When evidence is insufficient, conflicting or outside the taxonomy, leave industry blank and leave confidence blank; briefly explain the reason in source.
 - Do not invent facts, URLs, country values, legal entities or subsidiaries.
 
 APPROVED INDUSTRY MASTER — EXACT LABELS ONLY
-1. Automotive & Auto Components
-2. Aerospace, Aviation & Defence
-3. Chemicals, Petrochemicals & Plastics
-4. Pharmaceuticals & Healthcare
-5. Food, Agriculture & Beverages
-6. Electronics & Electrical Equipment
-7. Industrial Manufacturing & Engineering
-8. Machinery & Capital Equipment
-9. Textiles, Apparel & Footwear
-10. Consumer Goods & Retail
-11. Metals, Mining & Minerals
-12. Energy, Oil & Gas
-13. Construction & Building Materials
-14. Trading & Distribution
-15. Logistics & Supply Chain Services
+__INDUSTRY_LIST__
 
 ENTITY IDENTIFICATION
 - Identify the exact legal or operating entity, using country only to disambiguate the entity. Do not infer country.
@@ -73,7 +61,7 @@ EVIDENCE AND CONFIDENCE
 - If a named entity cannot be identified or the evidence is contradictory, leave industry and confidence blank and explain the missing evidence in source.
 
 FINAL VALIDATION
-- Check every nonblank industry against the exact 15 labels above.
+- Check every nonblank industry against the exact labels in the approved master above.
 - Check that every nonblank industry has confidence and evidence/source.
 - Confirm company_name, country, row count, row order and column names are unchanged.
 - Return the completed workbook in the same XLSX format. Briefly report classified rows, blank rows, category counts and confidence counts.
