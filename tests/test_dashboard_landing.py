@@ -25,6 +25,11 @@ class DashboardLandingTests(unittest.TestCase):
         self.assertNotIn("api('/api/classifications?", script)
         self.assertNotIn("registerPage", script)
 
+    def test_lookup_endpoint_registered_before_generic_api_fallback(self):
+        main = (Path(__file__).resolve().parents[1] / "main.py").read_text()
+        self.assertLess(main.index('@app.get("/api/classifications/lookup")'),
+                        main.index('@app.get("/api/{path:path}")'))
+
     def test_manual_classification_lookup_and_save_are_wired(self):
         root = Path(__file__).resolve().parents[1]
         main = (root / "main.py").read_text()
