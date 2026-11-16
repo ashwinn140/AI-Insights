@@ -17,6 +17,16 @@ class ClassificationReliabilityTests(unittest.TestCase):
         source = inspect.getsource(main.vertical_performance)
         self.assertIn("SET LOCAL statement_timeout = '20000'", source)
 
+    def test_contributor_page_and_summary_share_one_materialized_source_scan(self):
+        source = inspect.getsource(main.classification_contributors)
+        self.assertIn("scoped AS MATERIALIZED", source)
+        self.assertIn("contributor_groups AS MATERIALIZED", source)
+        self.assertIn("summary AS (", source)
+        self.assertIn("jsonb_agg(to_jsonb(page_row)", source)
+        self.assertIn('payload["rows"]', source)
+        self.assertIn('payload["summary"]', source)
+        self.assertNotIn("total_sql=", source)
+
     def test_global_database_timeout_is_not_relaxed(self):
         source = inspect.getsource(main.scoped_engine)
         self.assertIn("statement_timeout=10000", source)
