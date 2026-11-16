@@ -50,5 +50,34 @@ class ClassificationReliabilityTests(unittest.TestCase):
         self.assertIn("Save failed:", page)
 
 
+    def test_refresh_status_reports_partial_failures_instead_of_false_success(self):
+        page = Path("app/classifications.html").read_text()
+        self.assertIn("Filter options unavailable: '+e.message;return false", page)
+        self.assertIn("Industry insights unavailable: '+e.message;return false", page)
+        self.assertIn("Vertical drilldown unavailable: '+e.message;return false", page)
+        self.assertIn("Salesperson industry mix unavailable: '+e.message;return false", page)
+        self.assertIn("if(ok===false)outcomes.push(label)", page)
+        self.assertIn("Refresh incomplete · ", page)
+        self.assertIn("return {ok:outcomes.length===0,failed:outcomes}", page)
+
+    def test_complete_inline_javascript_passes_node_syntax_check(self):
+        import re
+        import shutil
+        import subprocess
+        import tempfile
+
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js is not installed")
+        page = Path("app/classifications.html").read_text()
+        scripts = re.findall(r"<script\b[^>]*>([\s\S]*?)</script>", page, re.IGNORECASE)
+        self.assertTrue(scripts)
+        for script in scripts:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".js", encoding="utf-8") as handle:
+                handle.write(script)
+                handle.flush()
+                subprocess.run([node, "--check", handle.name], check=True, capture_output=True, text=True)
+
+
 if __name__ == "__main__":
     unittest.main()

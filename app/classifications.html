@@ -74,7 +74,8 @@ async function verticalDetail(){
  for(const message of observations){const p=document.createElement('p');p.textContent=message;insights.append(p)}
  const datasets=[['vertical-departments',d.departments,x=>x.company+' · '+x.report_type,'department'],['vertical-lanes',d.lanes,x=>x.origin+' → '+x.destination,'lane'],['vertical-counterparties',d.counterparties,x=>x.name,'counterparty'],['vertical-branches',d.branches,x=>x.branch,'branch']];
  for(const [id,rows,label,kind] of datasets){const root=$(id);root.replaceChildren();if(!rows.length){root.textContent='No records';continue}const max=Math.max(1,...rows.map(x=>Number(x.shipments)));for(const x of rows){const row=document.createElement('button');row.type='button';row.className='ai-vertical-row ai-crossfilter-choice';row.title='Click to filter all industry visuals';row.setAttribute('aria-label','Filter all visuals by '+label(x));row.onclick=()=>applyVerticalCrossFilter(kind,x);const heading=document.createElement('span');heading.textContent=label(x);const count=document.createElement('strong');count.textContent=Number(x.shipments).toLocaleString('en-IN');const track=document.createElement('span');track.className='ai-contribution-track';const bar=document.createElement('span');bar.style.width=(Number(x.shipments)/max*100)+'%';track.append(bar);row.append(heading,count,track);root.append(row)}}
- }catch(e){$('vertical-note').textContent='Vertical drilldown unavailable: '+e.message}
+ }catch(e){$('vertical-note').textContent='Vertical drilldown unavailable: '+e.message;return false}
+ return true;
 }
 function periodBounds(kind,now=new Date()){
  const utc=(y,m,d)=>new Date(Date.UTC(y,m,d)),day=d=>d.toISOString().slice(0,10);
@@ -185,13 +186,14 @@ $('contributor-refresh').onclick=async()=>{
 async function contributorRecords(){
  contributorPage=0;shipmentRecordPage=0;
  const exportParams=trendParams($('trend-start').value,$('trend-end').value);exportParams.set('industry',selectedTrendIndustry);
- if(!selectedTrendIndustry){$('contributor-summary').textContent='No classified industry is available for contributor analysis under the selected filters.';renderContributorRows([]);$('contributor-chart').replaceChildren();return false}
+ if(!selectedTrendIndustry){$('contributor-summary').textContent='No classified industry is available for contributor analysis under the selected filters.';renderContributorRows([]);$('contributor-chart').replaceChildren();return true}
  return await loadContributorPage();
 }
 async function contributorFilterOptions(){
  try{const params=trendParams($('trend-start').value,$('trend-end').value);const options=await api('/api/classifications/contributor-options?'+params);
   for(const key of ['origin','destination','shipper','consignee','branch']){const selected=selectedValues(key);renderCheckPicker(key,options[key]||[],selected.length?selected:options[key]||[])}
- }catch(e){$('contributor-note').textContent='Filter options unavailable: '+e.message}
+  return true;
+ }catch(e){$('contributor-note').textContent='Filter options unavailable: '+e.message;return false}
 }
 async function shipmentTrend(){
  const chart=$('trend-chart'),table=$('trend-table'),summary=$('trend-summary');
@@ -250,9 +252,10 @@ async function shipmentTrend(){
   const change=prior===null?'—':prior===0?(now?'New':'0%'):((now-prior)/prior*100).toFixed(1)+'%';
   const tr=document.createElement('tr');for(const value of [item.name,fmt(item.total),share(item.total),prior===null?'—':fmt(prior),fmt(now),change]){const td=document.createElement('td');td.textContent=value;tr.append(td)}
   tr.style.cursor='pointer';tr.onclick=()=>{selectedTrendIndustry=item.name;updateContributorRefreshControl();drawContribution();drawTrend();verticalDetail();contributorRecords()};table.append(tr)}
- }catch(e){chart.replaceChildren();table.replaceChildren();summary.textContent='Industry insights unavailable: '+e.message}
+ }catch(e){chart.replaceChildren();table.replaceChildren();summary.textContent='Industry insights unavailable: '+e.message;return false}
+ return true;
 }
-let refreshInProgress=false,refreshPromise=null;function refreshIndustryViews(){if(refreshPromise)return refreshPromise;refreshInProgress=true;const button=$('page-refresh');if(button){button.disabled=true;button.textContent='↻ Refreshing…'}refreshPromise=(async()=>{await contributorFilterOptions();await shipmentTrend();if(selectedTrendIndustry){await verticalDetail();await contributorRecords()}if(salespersonLoaded)await salespersonIndustry();const now=new Date();$('data-refreshed').textContent='Last refreshed '+now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});})().finally(()=>{refreshInProgress=false;refreshPromise=null;if(button){button.disabled=false;button.textContent='↻ Refresh data'}});return refreshPromise}
+let refreshInProgress=false,refreshPromise=null;function refreshIndustryViews(){if(refreshPromise)return refreshPromise;refreshInProgress=true;const button=$('page-refresh');if(button){button.disabled=true;button.textContent='↻ Refreshing…'}refreshPromise=(async()=>{const outcomes=[];const run=async(label,task)=>{try{const ok=await task();if(ok===false)outcomes.push(label)}catch(e){outcomes.push(label);console.error('Dashboard refresh failed: '+label,e)}};await run('Contributor filters',contributorFilterOptions);await run('Industry trends',shipmentTrend);if(selectedTrendIndustry){await run('Vertical drilldown',verticalDetail);await run('Contributor analysis',contributorRecords)}if(salespersonLoaded)await run('Salesperson industry mix',salespersonIndustry);const status=$('data-refreshed');if(outcomes.length){status.textContent='Refresh incomplete · '+outcomes.join(', ')+' failed. Retry refresh.';status.setAttribute('role','alert');status.setAttribute('aria-live','polite')}else{const now=new Date();status.textContent='Last refreshed '+now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});status.removeAttribute('role');status.removeAttribute('aria-live')}return {ok:outcomes.length===0,failed:outcomes};})().finally(()=>{refreshInProgress=false;refreshPromise=null;if(button){button.disabled=false;button.textContent='↻ Refresh data'}});return refreshPromise}
 async function trendInit(){try{
  const u=await api('/auth/me');
  renderCheckPicker('company',u.companies||[],u.companies||[]);renderCheckPicker('lob',u.lobs||[],u.lobs||[]);
@@ -290,7 +293,8 @@ async function salespersonIndustry(){
   $('sales-export').href='/api/classifications/salesperson-industry/export?'+exportParams.toString();
   $('salesperson-industry-note').classList.remove('is-loading');$('salesperson-industry-note').textContent=data.basis+' '+salespersonRows.length+' salesperson/industry combinations. Showing 10 per page.';
   if(!salespersonRows.length)$('salesperson-industry-note').textContent='No salesperson/industry rows available for the selected source scope.';
- }catch(e){$('salesperson-industry-note').textContent=e.message}
+  return true;
+ }catch(e){$('salesperson-industry-note').textContent='Salesperson industry mix unavailable: '+e.message;return false}
 }
 $('sales-prev').onclick=()=>{if(salespersonPage>1){salespersonPage--;renderSalespersonPage()}};
 $('sales-next').onclick=()=>{if(salespersonPage<Math.ceil(salespersonRows.length/10)){salespersonPage++;renderSalespersonPage()}};
