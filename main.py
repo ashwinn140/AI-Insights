@@ -925,28 +925,29 @@ def classification_status_api(user=Depends(current_user)):
 
 @app.get("/api/classifications/pending-template")
 def classification_pending_template(user=Depends(current_user)):
-    """Export a compact, reusable workbook with saved decisions preserved."""
-    # Keep saved classifications (including completed AI/Gemini work) and add
-    # genuinely pending companies discovered from the permitted research/source data.
+    """Export only organisations without a saved, non-blank industry."""
     saved=auth.classification_rows_for_workbook(limit=50000)
-    pending=auth.pending_classification_names(limit=50000)
+    classified_keys={
+        str(row.get("company_name") or "").strip().casefold()
+        for row in saved
+        if str(row.get("company_name") or "").strip()
+        and str(row.get("industry") or "").strip()
+    }
     merged={}
+    # Preserve saved metadata only for records explicitly reset/left pending.
     for row in saved:
-        name=(row.get("company_name") or "").strip()
-        if not name:
+        name=str(row.get("company_name") or "").strip()
+        if not name or str(row.get("industry") or "").strip():
             continue
         key=name.casefold()
         merged[key]={
-            "company_name":name,
-            "industry":row.get("industry") or "",
-            "confidence":row.get("confidence") or "",
-            "source":row.get("source") or "",
-            "country":row.get("country") or "",
-            "appearances":int(row.get("appearances") or 0),
+            "company_name":name,"industry":"","confidence":row.get("confidence") or "",
+            "source":row.get("source") or "Awaiting classification",
+            "country":row.get("country") or "","appearances":0,
         }
-    for row in pending:
-        name=(row.get("company_name") or "").strip()
-        if not name:
+    for row in auth.pending_classification_names(limit=50000):
+        name=str(row.get("company_name") or "").strip()
+        if not name or name.casefold() in classified_keys:
             continue
         key=name.casefold()
         item=merged.setdefault(key,{
@@ -956,7 +957,7 @@ def classification_pending_template(user=Depends(current_user)):
         if not item["country"] and row.get("country"):
             item["country"]=row["country"]
         item["appearances"]=max(item["appearances"],int(row.get("appearances") or 0))
-    # Discover authorised shipment counterparties without exposing extra columns.
+    # Include authorised shipment counterparties only when they have no saved industry.
     companies,lobs=allowed_scope(user,None,None)
     engine=scoped_engine()
     try:
@@ -973,8 +974,8 @@ def classification_pending_template(user=Depends(current_user)):
         ) parties GROUP BY company_name ORDER BY appearances DESC LIMIT 50000""")
         with engine.connect() as conn:
             for row in conn.execute(statement,{"companies":companies,"lobs":lobs}).mappings():
-                name=(row["company_name"] or "").strip()
-                if not name:
+                name=str(row["company_name"] or "").strip()
+                if not name or name.casefold() in classified_keys:
                     continue
                 key=name.casefold()
                 item=merged.setdefault(key,{
@@ -996,6 +997,22 @@ def classification_pending_template(user=Depends(current_user)):
     return StreamingResponse(BytesIO(output),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition":"attachment; filename=ai-insights-pending-classification.xlsx",
+                 "Cache-Control":"no-store"})
+
+@app.get("/api/classifications/already-classified")
+@app.get("/api/admin/classifications/already-classified")
+def classification_already_classified_export(user=Depends(current_user)):
+    """Download only saved organisations with a non-blank industry."""
+    rows=_saved_classification_export_rows()
+    output=workbook_bytes([
+        ("Already classified",
+         ["company_name","industry","confidence","source","country"],
+         [[r.get("company_name"),r.get("industry"),r.get("confidence"),r.get("source"),r.get("country")]
+          for r in rows])
+    ])
+    return StreamingResponse(BytesIO(output),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition":"attachment; filename=ai-insights-already-classified.xlsx",
                  "Cache-Control":"no-store"})
 
 @app.get("/api/admin/classifications/reset-preview")
