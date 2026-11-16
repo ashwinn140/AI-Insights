@@ -65,6 +65,7 @@ FINAL VALIDATION
 - Check that every nonblank industry has confidence and evidence/source.
 - Confirm company_name, country, row count, row order and column names are unchanged.
 - Return the completed workbook in the same XLSX format. Briefly report classified rows, blank rows, category counts and confidence counts.
-"""
+""".replace("__INDUSTRY_LIST__", INDUSTRY_LIST_TEXT)
+
 def validate_industry(value):
     return isinstance(value, str) and value.strip() in INDUSTRY_VERTICALS
