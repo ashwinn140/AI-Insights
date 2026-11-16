@@ -324,10 +324,6 @@ uploadForm.addEventListener('submit',async e=>{
  }catch(err){uploadMessage(err.message||'Upload failed before confirmation. Please check the file and try again.','error')}
  finally{uploadButton.disabled=false;uploadButton.textContent=originalLabel}
 });
-const legacySearchButton=$('search');
-if(legacySearchButton)legacySearchButton.addEventListener('click',()=>{});
-const legacySearchInput=$('q');
-if(legacySearchInput)legacySearchInput.addEventListener('keydown',e=>{if(e.key==='Enter'){}});
 const pageRefreshButton=$('page-refresh');
 if(pageRefreshButton)pageRefreshButton.onclick=async()=>{
  if(refreshInProgress)return;
