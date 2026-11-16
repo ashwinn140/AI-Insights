@@ -726,34 +726,43 @@ def classification_contributors(industry:str,company:str|None=None,lob:str|None=
         # but give these bounded, read-only queries up to 25s.
         conn.execute(text("SET LOCAL statement_timeout = '25000'"))
     try:
-        # Keep expensive contributor grouping separate from the simple shipment
-        # summary. This avoids repeated DISTINCT aggregates over one materialized
-        # working set, which exceeded the production statement timeout.
-        grouped_sql=base_cte+""" SELECT contributor AS organisation,
-              CASE WHEN :role='shipper' THEN 'Shipper'
-                   WHEN :role='consignee' THEN 'Consignee'
-                   ELSE CASE WHEN COUNT(DISTINCT attributed_role)=1
-                             THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END
-              END AS contributor_role,
-              COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
-              COUNT(DISTINCT related_party) AS distinct_related_parties,
-              COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
-              STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
-              STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners
-       FROM scoped WHERE contributor IS NOT NULL
-       GROUP BY contributor
-       ORDER BY shipment_rows DESC,organisation
-       LIMIT :limit OFFSET :offset"""
+        # Materialize the authorised shipment scope once and derive the ranked
+        # contributor page plus summary in one statement. Previously the same
+        # source/mapping join ran twice on separate connections, doubling scans.
+        grouped_sql=base_cte.replace("), scoped AS (", "), scoped AS MATERIALIZED (")+""",
+        contributor_groups AS MATERIALIZED (
+          SELECT contributor AS organisation,
+                 CASE WHEN :role='shipper' THEN 'Shipper'
+                      WHEN :role='consignee' THEN 'Consignee'
+                      ELSE CASE WHEN COUNT(DISTINCT attributed_role)=1
+                                THEN MIN(attributed_role) ELSE 'Shipper & Consignee' END
+                 END AS contributor_role,
+                 COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
+                 COUNT(DISTINCT related_party) AS distinct_related_parties,
+                 COUNT(DISTINCT NULLIF(BTRIM(salesperson),'')) AS salesperson_count,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(salesperson),''), '; ' ORDER BY NULLIF(BTRIM(salesperson),'')) AS salespersons,
+                 STRING_AGG(DISTINCT NULLIF(BTRIM(job_owner),''), '; ' ORDER BY NULLIF(BTRIM(job_owner),'')) AS job_owners
+          FROM scoped WHERE contributor IS NOT NULL
+          GROUP BY contributor
+        ),
+        summary AS (
+          SELECT (SELECT COUNT(*) FROM contributor_groups) AS contributor_total,
+                 COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
+                 COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight
+          FROM scoped
+        )
+        SELECT COALESCE(
+                 (SELECT jsonb_agg(to_jsonb(page_row) ORDER BY page_row.shipment_rows DESC,page_row.organisation)
+                  FROM (SELECT * FROM contributor_groups
+                        ORDER BY shipment_rows DESC,organisation
+                        LIMIT :limit OFFSET :offset) page_row),
+                 '[]'::jsonb) AS rows,
+               (SELECT to_jsonb(summary) FROM summary) AS summary"""
         with engine.connect() as conn:
             set_contributor_timeout(conn)
-            rows=[dict(row) for row in conn.execute(text(grouped_sql),params).mappings()]
-        total_sql=base_cte+""" SELECT COUNT(DISTINCT contributor) AS contributor_total,
-              COUNT(*) AS shipment_rows,COUNT(DISTINCT key) AS distinct_shipments,
-              COALESCE(SUM(teus),0) AS teus,COALESCE(SUM(gross_wt),0) AS gross_weight
-       FROM scoped"""
-        with engine.connect() as conn:
-            set_contributor_timeout(conn)
-            summary=dict(conn.execute(text(total_sql),params).mappings().one())
+            payload=conn.execute(text(grouped_sql),params).mappings().one()
+        rows=payload["rows"] or []
+        summary=payload["summary"] or {}
         contributor_total=int(summary.pop("contributor_total") or 0)
         shipment_record_total=int(summary.get("shipment_rows") or 0)
         for row in rows:
