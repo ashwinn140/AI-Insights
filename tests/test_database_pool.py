@@ -31,9 +31,9 @@ class ScopedEnginePoolTests(unittest.TestCase):
         self.assertIs(first, second)
         factory.assert_called_once()
         kwargs = factory.call_args.kwargs
-        self.assertEqual(kwargs["pool_size"], 2)
-        self.assertEqual(kwargs["max_overflow"], 2)
-        self.assertEqual(kwargs["pool_timeout"], 5)
+        self.assertEqual(kwargs["pool_size"], 1)
+        self.assertEqual(kwargs["max_overflow"], 0)
+        self.assertEqual(kwargs["pool_timeout"], 30)
         self.assertEqual(kwargs["connect_args"]["connect_timeout"], 5)
         self.assertIn("default_transaction_read_only=on", kwargs["connect_args"]["options"])
         self.assertIn("statement_timeout=10000", kwargs["connect_args"]["options"])
