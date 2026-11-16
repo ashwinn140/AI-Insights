@@ -6,7 +6,7 @@ import secrets
 import sqlite3
 import time
 from pathlib import Path
-from app.industry_master import validate_industry
+from app.industry_master import INDUSTRY_VERTICALS, validate_industry
 
 DB = Path(os.environ.get("AI_AUTH_DB", "/ai-data/auth.sqlite3"))
 COMPANIES = {"NG", "NCS"}
@@ -277,7 +277,7 @@ def classification_save(actor,company_name,industry,confidence,source,country=""
     if not 2<=len(company_name)<=200 or not 3<=len(source)<=500:
         raise ValueError("Company name and evidence source are required")
     if not validate_industry(industry):
-        raise ValueError("Industry must match one of the 15 defined verticals exactly")
+        raise ValueError(f"Industry must match one of the {len(INDUSTRY_VERTICALS)} defined verticals exactly")
     if confidence not in ("low","medium","high"):
         raise ValueError("Invalid confidence")
     with connection() as db:
@@ -310,7 +310,7 @@ def classification_import(actor,rows):
         confidence=confidence.strip().lower() if isinstance(confidence,str) else ""
         source=source.strip() if isinstance(source,str) else ""
         if not validate_industry(industry):
-            raise ValueError(f"Invalid industry vertical for {name}: choose one of the 15 defined labels")
+            raise ValueError(f"Invalid industry vertical for {name}: choose one of the {len(INDUSTRY_VERTICALS)} defined labels")
         if confidence not in ("low","medium","high"):
             raise ValueError(f"Invalid confidence for {name}: use low, medium or high")
         if len(source)<3:
